@@ -1,0 +1,3 @@
+#!/bin/sh
+test -L README || ln -s README.org README
+autoreconf -vfi
