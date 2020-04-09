@@ -2,12 +2,12 @@
 #+DESCRIPTION: mpdpopm
 #+AUTHOR: Michael Herstine
 #+EMAIL: sp1ff@pobox.com
-#+DATE: <2020-04-08 Wed 14:40>
+#+DATE: <2020-04-08 Wed 18:57>
 #+AUTODATE: t
 
 * Introduction
 
-This will be a companion daemon for [[ n exploratory project I'm writing to add playcounts & ratings to [[https://www.musicpd.org/][mpd]] that will maintain play counts & ratings. Similar to [[https://github.com/vincent-petithory/mpdfav][mpdfav]], but written in Rust (which I prefer to Go), it will allow you to maintain that information in your tags, as well as the sticker database, by invoking external commands to keep your tags up-to-date (something along the lines of [[https://alip.github.io/mpdcron][mpdcron]]).
+This will be a companion daemon for [[https://www.musicpd.org/][mpd]] that will maintain play counts & ratings. Similar to [[https://github.com/vincent-petithory/mpdfav][mpdfav]], but written in Rust (which I prefer to Go), it will allow you to maintain that information in your tags, as well as the sticker database, by invoking external commands to keep your tags up-to-date (something along the lines of [[https://alip.github.io/mpdcron][mpdcron]]).
 
 * Status
 
