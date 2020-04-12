@@ -4,6 +4,8 @@
 //!
 //! [proto]: http://www.musicpd.org/doc/protocol/
 
+use crate::ReplacementStringError;
+
 use log::{debug, info};
 use std::error::Error;
 use std::fmt;
@@ -24,7 +26,7 @@ pub struct MpdClientError {
 }
 
 impl MpdClientError {
-    fn new(msg: &str) -> MpdClientError {
+    pub fn new(msg: &str) -> MpdClientError {
         MpdClientError {
             details: msg.to_string(),
         }
@@ -75,6 +77,15 @@ impl From<std::num::ParseFloatError> for MpdClientError {
     }
 }
 
+// TODO(sp1ff): want this?
+impl From<ReplacementStringError> for MpdClientError {
+    fn from(err: ReplacementStringError) -> Self {
+        MpdClientError {
+            details: format!("bad replacement string: {:#?}", err),
+        }
+    }
+}
+
 /// Core logic for connecting to an mpd server; for private use.
 async fn connect<A: ToSocketAddrs>(addr: A) -> Result<TcpStream, MpdClientError> {
     let mut sock = TcpStream::connect(addr).await?;
@@ -96,7 +107,7 @@ async fn connect<A: ToSocketAddrs>(addr: A) -> Result<TcpStream, MpdClientError>
 //                                        enum PlayerState                                        //
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayerState {
     Play,
     Pause,
@@ -122,13 +133,13 @@ impl PlayerState {
 }
 
 /// mpdpopm server status.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ServerStatus {
-    state: PlayerState,
-    songid: u64,
-    file: std::path::PathBuf,
-    elapsed: f64,
-    duration: f64,
+    pub state: PlayerState,
+    pub songid: u64,
+    pub file: std::path::PathBuf,
+    pub elapsed: f64,
+    pub duration: f64,
 }
 
 /// General-purpose mpdpopm client abstraction.
@@ -150,7 +161,6 @@ impl Client {
     /// Retrieve the current server status.
     pub async fn status(&mut self) -> Result<ServerStatus, MpdClientError> {
         self.sock.write_all(b"status\n").await?;
-        debug!("Sent status message.");
 
         let mut buf = Vec::with_capacity(512);
         self.sock.read_buf(&mut buf).await?;
@@ -174,7 +184,6 @@ impl Client {
         // nextsongid: 16
         // elapsed: 140.585
         let mut text = String::from_utf8(buf)?;
-        debug!("From status, got '{}'.", text);
 
         // TODO(sp1ff): Ugh-- there must be a better way; I *could* initialize each variable
         // by matching a regex, but that seems much less efficient.
@@ -210,13 +219,11 @@ impl Client {
         self.sock
             .write_all(format!("playlistid {}\n", songid).as_bytes())
             .await?;
-        debug!("Sent playlistid message.");
 
         let mut buf2 = Vec::with_capacity(512);
         self.sock.read_buf(&mut buf2).await?;
 
         text = String::from_utf8(buf2)?;
-        debug!("From status, got '{}'.", text);
 
         // Should look something like this:
         // file: U-Z/U2 - Who's Gonna RIDE Your WILD HORSES.mp3
@@ -254,6 +261,66 @@ impl Client {
             elapsed: elapsed,
             duration: duration,
         })
+    }
+
+    pub async fn get_sticker(
+        &mut self,
+        file: &str,
+        sticker_name: &str,
+    ) -> Result<Option<String>, MpdClientError> {
+        self.sock
+            .write_all(format!("sticker get song \"{}\" \"{}\"\n", file, sticker_name).as_bytes())
+            .await?;
+        debug!("Sent sticker get message.");
+
+        let mut buf = Vec::with_capacity(512);
+        self.sock.read_buf(&mut buf).await?;
+
+        let text = String::from_utf8(buf)?;
+        debug!("From sticker get, got '{}'.", text);
+
+        let mut val: Option<String> = None;
+        let prefix = format!("sticker: {}=", sticker_name);
+        for line in text.lines() {
+            if line.starts_with(&prefix) {
+                val = Some(line[prefix.len()..].to_string());
+            }
+        }
+        match val {
+            Some(val) => Ok(Some(val)),
+            None => Ok(None),
+        }
+    }
+
+    pub async fn set_sticker(
+        &mut self,
+        file: &str,
+        sticker_name: &str,
+        sticker_value: &str,
+    ) -> Result<(), MpdClientError> {
+        self.sock
+            .write_all(
+                format!(
+                    "sticker set song \"{}\" \"{}\" \"{}\"\n",
+                    file, sticker_name, sticker_value
+                )
+                .as_bytes(),
+            )
+            .await?;
+        debug!("Sent sticker set message.");
+
+        let mut buf = Vec::with_capacity(512);
+        self.sock.read_buf(&mut buf).await?;
+
+        let text = String::from_utf8(buf)?;
+        debug!("From sticker set, got '{}'.", text);
+
+        for line in text.lines() {
+            if line.starts_with("ACK") {
+                return Err(MpdClientError::new(&text));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -354,5 +421,17 @@ impl IdleClient {
         }
 
         Ok(result)
+    }
+    pub async fn get_messages(&mut self) -> Result<Vec<String>, MpdClientError> {
+        self.sock.write_all(b"readmessages\n").await?;
+        debug!("Sent readmessages.");
+
+        let mut buf = Vec::with_capacity(512);
+        self.sock.read_buf(&mut buf).await?;
+
+        let text = String::from_utf8(buf)?;
+        debug!("From readmessages, got '{}'.", text);
+
+        Ok(text.lines().map(|x| x.to_string()).collect())
     }
 }

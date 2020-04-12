@@ -1,3 +1,13 @@
+2020-04-12  Michael Herstine  <sp1ff@pobox.com>
+
+	Initial implementation of ratings & play counts.
+	This is a very preliminary commit of ratings & play count
+	implementations. I really just wanted to validate my approach;
+	my Rust-fu is so lacking at this point I don't know if I
+	can even push this :O
+
 2020-04-08  Michael Herstine  <sp1ff@pobox.com>
+
+	Fix typo in README.org.
 
 	Initial commit of `mpdpopm'.

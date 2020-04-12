@@ -12,7 +12,7 @@ cargo_verbose_1 = --verbose
 EXTRA_DIST = Cargo.lock
 bin_PROGRAMS = mpdpopm
 
-mpdpopm_SOURCES = Cargo.toml src/vars.rs src/lib.rs src/client.rs src/bin/mpdpopm.rs
+mpdpopm_SOURCES = Cargo.toml src/vars.rs src/lib.rs src/client.rs src/ratings.rs src/bin/mpdpopm.rs
 
 mpdpopm$(EXEEXT): $(mpdpopm_SOURCES)
 	cd $(top_srcdir)/mpdpopm && \
