@@ -4,3 +4,6 @@ aclocal.m4
 autom4te.cache
 build-aux
 configure
+*.bz2
+*.gz
+*.xz

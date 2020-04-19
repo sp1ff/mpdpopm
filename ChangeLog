@@ -1,3 +1,13 @@
+2020-04-19  Michael Herstine  <sp1ff@pobox.com>
+
+	Stop exiting when the player stops.
+	This commit started off as an attempt to fix handling of player
+	state changes; `mpdpopm' was failing whenever the player was
+	stopped. While doing so, I wound up re-writing large swaths
+	of code. The current status is akin to having your computer
+	disassembled on the living room floor; it boots up, but there are
+	screws everywhere & disconnected cables on top of it all.
+
 2020-04-12  Michael Herstine  <sp1ff@pobox.com>
 
 	Initial implementation of ratings & play counts.

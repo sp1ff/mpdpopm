@@ -2,7 +2,7 @@
 #+DESCRIPTION: mpdpopm
 #+AUTHOR: Michael Herstine
 #+EMAIL: sp1ff@pobox.com
-#+DATE: <2020-04-08 Wed 18:57>
+#+DATE: <2020-04-19 Sun 12:43>
 #+AUTODATE: t
 
 * Introduction
@@ -11,4 +11,4 @@ This will be a companion daemon for [[https://www.musicpd.org/][mpd]] that will 
 
 * Status
 
-This is work-in-progress. I have chosen the version number (0.0) in the hopes of indicating that.
+This is work-in-progress. I have chosen the version number (0.1) in the hopes of indicating that.

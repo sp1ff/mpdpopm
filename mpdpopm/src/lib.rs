@@ -22,6 +22,8 @@ impl ReplacementStringError {
     }
 }
 
+impl std::error::Error for ReplacementStringError {}
+
 impl fmt::Display for ReplacementStringError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.param_name)

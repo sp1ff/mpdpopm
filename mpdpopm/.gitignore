@@ -2,3 +2,5 @@
 Cargo.lock
 *.log
 .mpdpopm
+Cargo.toml
+rusty-tags.emacs
