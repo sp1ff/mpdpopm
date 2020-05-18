@@ -1,0 +1,340 @@
+// Copyright (C) 2020 Michael Herstine <sp1ff@pobox.com>
+//
+// This file is part of mpdpopm.
+//
+// mpdpopm is free software: you can redistribute it and/or modify it under the terms of the GNU General
+// Public License as published by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// mpdpopm is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
+// implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+// Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with mpdpopm.  If not, see
+// <http://www.gnu.org/licenses/>.
+
+//! # mppopm
+//!
+//! mppopmd client
+//!
+//! # Introduction
+//!
+//! [`mppopmd`] is a companion daemon for [mpd](https://www.musicpd.org/) that maintains play counts
+//! & ratings. Similar to [mpdfav](https://github.com/vincent-petithory/mpdfav), but written in Rust
+//! (which I prefer to Go), it will allow you to maintain that information in your tags, as well as
+//! the sticker database, by invoking external commands to keep your tags up-to-date (something
+//! along the lines of [mpdcron](https://alip.github.io/mpdcron)). [`mppopm`] is a command-line
+//! client for [`mppopmd`].
+
+use mpdpopm::{
+    clients::{Client, PlayerStatus},
+    ratings::get_rating,
+};
+
+use clap::{App, Arg};
+use log::{info, trace, LevelFilter};
+use log4rs::{
+    append::{
+        console::{ConsoleAppender, Target},
+    },
+    config::{Appender, Root},
+    encode::pattern::PatternEncoder,
+};
+use serde::{Deserialize, Serialize};
+use snafu::{Backtrace, GenerateBacktrace, OptionExt, Snafu};
+
+use std::{fmt, path::PathBuf};
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                 mppopm application Error Type                                  //
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// NB we take care NOT to derive Debug here. This is because main returns a Result<(), Error>; in
+// the case of an error, the stdlib will format the resulting error message using the Debug trait
+// which, when derived, is rather ugly. We'll implement it by hand below to produce something more
+// pleasant for human beings to read.
+/// [`mppopm`] errors
+#[derive(Snafu)]
+pub enum Error {
+    #[snafu(display("{}", cause))]
+    Other {
+        #[snafu(source(true))]
+        cause: Box<dyn std::error::Error>,
+        #[snafu(backtrace(true))]
+        back: Backtrace,
+    },
+    #[snafu(display("No sub-command specified; try `mppopm --help'"))]
+    NoSubCommand,
+    #[snafu(display("The config argument couldn't be retrieved. This is likely a bug; please \
+                     consider filing a report with sp1ff@pobox.com"))]
+    NoConfigArg,
+    #[snafu(display("The rating argument couldn't be retrieved. This is likely a bug; please \
+                     consider filing a report with sp1ff@pobox.com"))]
+    NoRating,
+    #[snafu(display("While trying to read the configuration file `{:?}', got `{}'", config, cause))]
+    NoConfig {
+        config: std::path::PathBuf,
+        #[snafu(source(true))]
+        cause: std::io::Error,
+    },
+    #[snafu(display("The player is stopped"))]
+    PlayerStopped,
+    #[snafu(display("Received a path with non-UTF8 codepoints: {:?}", path))]
+    BadPath {
+        path: PathBuf,
+        #[snafu(backtrace(true))]
+        back: Backtrace,
+    },
+}
+
+impl fmt::Debug for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
+// TODO(sp1ff): re-factor this into one place
+macro_rules! error_from {
+    ($t:ty) => (
+        impl std::convert::From<$t> for Error {
+            fn from(err: $t) -> Self {
+                Error::Other{ cause: Box::new(err), back: Backtrace::generate() }
+            }
+        }
+    )
+}
+
+error_from!(mpdpopm::Error);
+error_from!(mpdpopm::clients::Error);
+error_from!(mpdpopm::ratings::Error);
+error_from!(log::SetLoggerError);
+error_from!(serde_lexpr::error::Error);
+error_from!(std::env::VarError);
+
+type Result = std::result::Result<(), Error>;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// TODO(sp1ff): just use the same config as the daemon?
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Config {
+    // TODO(sp1ff): I think we need to run this on the same host-- use socket only?
+    /// Host on which `mpd' is listening
+    host: String,
+    /// TCP port on which `mpd' is listening
+    port: u16,
+    /// Sticker name under which to store playcounts
+    playcount_sticker: String,
+    /// Sticker name under which to store the last played timestamp
+    lastplayed_sticker: String,
+    /// Channel to setup for assorted commands-- channel names must satisfy "[-a-zA-Z-9_.:]+"
+    commands_chan: String,
+    /// Sticker under which to store song ratings, as a textual representation of a number in
+    /// [0,255]
+    rating_sticker: String,
+}
+
+impl Config {
+    pub fn new() -> Config {
+        // TODO(sp1ff): change these defaults to something more appropriate
+        Config {
+            host: String::from("localhost"),
+            port: 16600,
+            playcount_sticker: String::from("unwoundstack.com:playcount"),
+            lastplayed_sticker: String::from("unwoundstack.com:lastplayed"),
+            commands_chan: String::from("unwoundstack.com:commands"),
+            rating_sticker: String::from("unwoundstack.com:rating"),
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                          sub-commands                                          //
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// Retrieve ratings for one or more tracks
+async fn get_ratings<'a, Iter: Iterator<Item=&'a str>>(client: &mut Client,
+                                                       sticker: &str,
+                                                       tracks: Option<Iter>,
+                                                       with_track: bool) -> Result {
+    let files = match tracks {
+        Some(iter) => {
+            iter.map(|x| x.to_string()).collect()
+        },
+        None => {
+            let file = match client.status().await? {
+                PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => {
+                    curr.file.to_str().context(BadPath { path: curr.file.clone() } )?.to_string()
+                },
+                PlayerStatus::Stopped => {
+                    return Err(Error::PlayerStopped);
+                }
+            };
+            vec![ file ]
+        }
+    };
+
+    let mut ratings: Vec<(String, u8)> = Vec::new();
+    for file in files {
+        let rating = get_rating(client, sticker, &file).await?;
+        ratings.push((file, rating));
+    }
+
+    if ratings.len() == 1 && ! with_track {
+        info!("{}", ratings[0].1);
+    } else {
+        for pair in ratings {
+            info!("{}: {}", pair.0, pair.1);
+        }
+    }
+
+    Ok(())
+}
+
+/// Rate a track
+async fn set_rating (client: &mut Client,
+                     chan: &str,
+                     rating: &str,
+                     track: Option<&str>) -> Result {
+    let uri = match track {
+        Some(uri) => uri.to_string(),
+        None => {
+            let file = match client.status().await? {
+                PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => {
+                    curr.file.to_str().context(BadPath { path: curr.file.clone() } )?.to_string()
+                },
+                PlayerStatus::Stopped => {
+                    return Err(Error::PlayerStopped);
+                }
+            };
+            file
+        }
+    };
+
+    Ok(client.send_message(chan, &format!("rate {} {}", rating, uri)).await?)
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                         The Big Kahuna                                         //
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[tokio::main]
+async fn main() -> Result {
+    use mpdpopm::vars::{AUTHOR, VERSION};
+
+    let matches = App::new("mppopm")
+        .version(VERSION)
+        .author(AUTHOR)
+        .about("`mppopmd' client")
+        .arg(
+            Arg::with_name("verbose")
+                .short('v')
+                .about("enable verbose logging")
+        )
+        .arg(
+            Arg::with_name("debug")
+                .short('d')
+                .about("enable debug logging (implies --verbose)")
+        )
+        .arg(
+            Arg::with_name("config")
+                .short('c')
+                .takes_value(true)
+                .value_name("FILE")
+                .default_value(&format!("{}/.mppopm", std::env::var("HOME")?))
+                .about("path to configuration file"),
+        )
+        .subcommand(
+            App::new("get-rating")
+                .about("retrieve the rating for one or more tracks")
+                .long_about("
+With no arguments, retrieve the rating of the current song & print it
+on stdout. With one argument, retrieve that track's rating & print it
+on stdout. With multiple arguments, print their ratings on stdout, one
+ per line, prefixed by the track name.")
+                .arg(
+                    Arg::with_name("with-uri")
+                        .short('u')
+                        .about("Always show the song URI, even when there is only one")
+                )
+                .arg(
+                    Arg::with_name("track")
+                        .multiple(true)
+                )
+        )
+        .subcommand(
+            App::new("set-rating")
+                .about("set the rating for one track")
+                .long_about("
+With no arguments, set the rating of the current song. With a single
+argument, rate that song.")
+                .arg(
+                    Arg::with_name("rating")
+                        .index(1)
+                        .required(true)
+                )
+                .arg(
+                    Arg::with_name("track")
+                        .index(2)
+                )
+        )
+        .get_matches();
+
+    // Handling the configuration file is a little touchy; if the user simply accepted the default,
+    // and it's not there, that's fine: we just proceed with a defualt configuration. But if they
+    // explicitly named a configuration file, and it's not there, they presumably want to know
+    // about that.
+    let cfgpth = matches.value_of("config").context(NoConfigArg{ })?;
+    let cfg = match std::fs::read_to_string(cfgpth) {
+        // The config file (defaulted or not) existed & we were able to read its contents-- parse
+        // em!
+        Ok(text) => serde_lexpr::from_str(&text)?,
+        // The config file (defaulted or not) either didn't exist, or we were unable to read its
+        // contents...
+        Err(err) => match (err.kind(), matches.occurrences_of("config")) {
+            (std::io::ErrorKind::NotFound, 0) => {
+                // The user just accepted the default option value & that default didn't exist; we
+                // proceed with default configuration settings.
+                Config::new()
+            },
+            (_, _) => {
+                // Either they did _not_, in which case they probably want to know that the config
+                // file they explicitly asked for does not exist, or there was some other problem,
+                // in which case we're out of options, anyway. Either way:
+                return Err(Error::NoConfig{ config: PathBuf::from(cfgpth), cause: err });
+            }
+        }
+    };
+
+    let lf = match (matches.is_present("verbose"), matches.is_present("debug")) {
+        (_, true) => LevelFilter::Trace,
+        (true, false) => LevelFilter::Debug,
+        _ => LevelFilter::Info,
+    };
+
+    let app = ConsoleAppender::builder()
+        .target(Target::Stdout)
+        .encoder(Box::new(PatternEncoder::new("[{d}] {m}{n}")))
+        .build();
+    let lcfg = log4rs::config::Config::builder()
+        .appender(Appender::builder().build("stdout", Box::new(app)))
+        .build(Root::builder().appender("stdout").build(lf))
+        .unwrap();
+    log4rs::init_config(lcfg)?;
+
+    trace!("logging configured.");
+
+    // Whatever we do, we're going to need a Client, so whip one up now:
+    let mut client = Client::connect(format!("{}:{}", cfg.host, cfg.port)).await?;
+
+    if let Some(subm) = matches.subcommand_matches("get-rating") {
+        return Ok(get_ratings(&mut client, &cfg.rating_sticker, subm.values_of("track"),
+                              subm.is_present("with-track")).await?);
+    } else if let Some(subm) = matches.subcommand_matches("set-rating") {
+        return Ok(set_rating(&mut client, &cfg.commands_chan,
+                             subm.value_of("rating").context( NoRating{} )?,
+                             subm.value_of("track")).await?);
+    }
+
+    Err(Error::NoSubCommand{ })
+}

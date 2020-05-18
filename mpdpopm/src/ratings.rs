@@ -1,17 +1,53 @@
+// Copyright (C) 2020 Michael Herstine <sp1ff@pobox.com>
+//
+// This file is part of mpdpopm.
+//
+// mpdpopm is free software: you can redistribute it and/or modify it under the terms of the GNU General
+// Public License as published by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// mpdpopm is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
+// implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+// Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with mpdpopm.  If not, see
+// <http://www.gnu.org/licenses/>.
+
 //! Logic for rating MPD tracks.
 //!
 //! # Introduction
 //!
 //! This module contains types implementing a basic rating functionality for `mpd'.
+//!
+//! # Discussion
+//!
+//! Rating messages to the relevant channel take the form "RATING( TRACK)?" (the two components can
+//! be separated by any whitespace). The rating can be given by an integer between 0 & 255
+//! (inclusive) represented in base ten, or as one-to-five asterisks (i.e. \*{1,5}). In the latter
+//! case, the rating will be mapped to 1-255 as per Winamp's
+//! [convention](http://forums.winamp.com/showpost.php?p=2903240&postcount=94):
+//!
+//!   - 224-255 :: 5 stars when READ with windows explorer, writes 255
+//!   - 160-223 :: 4 stars when READ with windows explorer, writes 196
+//!   - 096-159 :: 3 stars when READ with windows explorer, writes 128
+//!   - 032-095 :: 2 stars when READ with windows explorer, writes 64
+//!   - 001-031 :: 1 stars when READ with windows explorer, writes 1
+//!
+//! NB a rating of zero means "not rated".
+//!
+//! Everything after the first whitepace, if present, is taken to be the track to be rated (i.e.
+//! the track may contain whitespace). If omitted, the rating is taken to apply to the current
+//! track.
 
-use crate::client::Client;
-use crate::{process_replacements, PinnedCmdFut, ReplacementStringError};
+use crate::clients::Client;
+use crate::replstrings::{process_replacements};
+use crate::replstrings::Error as ReplacementStringError;
 
 use log::{debug, info};
+use snafu::{Backtrace, GenerateBacktrace, OptionExt, ResultExt, Snafu};
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::fmt;
 use std::path::PathBuf;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -19,101 +55,58 @@ use std::path::PathBuf;
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// An enumeration of ratings errors
-#[derive(Debug)]
-pub enum Cause {
-    /// An error occurred in some sub-system (network I/O, or string formatting, e.g.)
-    SubModule,
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("{}", cause))]
+    Other {
+        #[snafu(source(true))]
+        cause: Box<dyn std::error::Error>,
+        #[snafu(backtrace(true))]
+        back: Backtrace,
+    },
     /// Unable to interpret a string as a rating
-    RatingError(String),
-    NotImplemented(String),
-    BadPath(std::path::PathBuf),
-    ReplacementString,
+    #[snafu(display("Couldn't interpret `{}' as a rating", text))]
+    RatingError {
+        #[snafu(source(from(std::num::ParseIntError, Box::new)))]
+        cause: Box<dyn std::error::Error>,
+        text: String,
+    },
+    #[snafu(display("`{}' is not implemented, yet", feature))]
+    NotImplemented {
+        feature: String,
+    },
+    #[snafu(display("Path `{}' cannot be converted to a String", pth.display()))]
+    BadPath {
+        pth: PathBuf,
+        #[snafu(backtrace(true))]
+        back: Backtrace,
+    },
 }
 
-#[derive(Debug)]
-pub struct Error {
-    /// Enumerated status code-- perhaps this is a holdover from my C++ days, but I've found that
-    /// programmatic error-handling is facilitated by status codes, not text. Textual messages
-    /// should be synthesized from other information only when it is time to present the error to a
-    /// human (in a log file, say).
-    cause: Cause,
-    // This is an Option that may contain a Box containing something that implements
-    // std::error::Error.  It is still unclear to me how this satisfies the lifetime bound in
-    // std::error::Error::source, which additionally mandates that the boxed thing have 'static
-    // lifetime. There is a discussion of this at
-    // <https://users.rust-lang.org/t/what-does-it-mean-to-return-dyn-error-static/37619/6>,
-    // but at the time of this writing, i cannot follow it.
-    source: Option<Box<dyn std::error::Error>>,
-}
-
-impl Error {
-    pub fn new(cause: Cause) -> Error {
-        Error {
-            cause: cause,
-            source: None,
+// TODO(sp1ff): re-factor this into one place
+macro_rules! error_from {
+    ($t:ty) => (
+        impl std::convert::From<$t> for Error {
+            fn from(err: $t) -> Self {
+                Error::Other{ cause: Box::new(err), back: Backtrace::generate() }
+            }
         }
-    }
+    )
 }
 
-impl fmt::Display for Error {
-    /// Format trait for an empty format, {}.
-    ///
-    /// I'm unsure of the conventions around implementing this method, but I've chosen to provide
-    /// a one-line representation of the error suitable for writing to a log file or stderr.
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match &self.cause {
-            Cause::SubModule => write!(f, "ratings error: {:#?}", self.source),
-            Cause::RatingError(x) => write!(f, "couldn't interpret '{}' as a rating", x),
-            Cause::NotImplemented(x) => write!(f, "{} is not implemented", x),
-            Cause::BadPath(x) => write!(f, "bad path '{:#?}'", x),
-            Cause::ReplacementString => write!(f, "Unknown replacement string"),
-        }
-    }
-}
-
-impl std::error::Error for Error {
-    /// The lower-level source of this error, if any.
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match &self.source {
-            // This is an Option that may contain a reference to something that implements
-            // std::error::Error and has lifetime 'static. I'm still not sure what 'static means,
-            // exactly, but at the time of this writing, I take it to mean a thing which can, if
-            // needed, last for the program lifetime (e.g. it contains no references to anything
-            // that itself does not have 'static lifetime)
-            Some(bx) => Some(bx.as_ref()),
-            None => None,
-        }
-    }
-}
-
-// There *must* be a way to do this generically, but my naive attempts clash with the core
-// implementation of From<T> for T.
-
-impl From<crate::client::Error> for Error {
-    fn from(err: crate::client::Error) -> Self {
-        Error {
-            cause: Cause::SubModule,
-            source: Some(Box::new(err)),
-        }
-    }
-}
-
-impl From<ReplacementStringError> for Error {
-    fn from(err: ReplacementStringError) -> Self {
-        Error {
-            cause: Cause::ReplacementString,
-            source: Some(Box::new(err)),
-        }
-    }
-}
+error_from!(crate::clients::Error);
+error_from!(ReplacementStringError);
+error_from!(std::num::ParseIntError);
 
 pub type Result<T> = std::result::Result<T, Error>;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                     RatingRequest message                                      //
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// The track to which a rating shall be applied.
-#[derive(Debug)]
-enum RatedTrack {
+#[derive(Debug, PartialEq)]
+pub enum RatedTrack {
     Current,
     File(std::path::PathBuf),
     Relative(i8),
@@ -121,7 +114,7 @@ enum RatedTrack {
 
 /// A request from a client to rate a track.
 #[derive(Debug)]
-struct RatingRequest {
+pub struct RatingRequest {
     pub rating: u8,
     pub track: RatedTrack,
 }
@@ -157,13 +150,8 @@ impl std::convert::TryFrom<&str> for RatingRequest {
                 "***" => 128,
                 "****" => 196,
                 "*****" => 255,
-                // failing that, we try just interperting `rating' as an unsigned inteter:
-                _ => match rating.parse::<u8>() {
-                    Ok(u) => u,
-                    Err(_) => {
-                        return Err(Error::new(Cause::RatingError(String::from(rating))));
-                    }
-                },
+                // failing that, we try just interperting `rating' as an unsigned integer:
+                _ => rating.parse::<u8>().context(RatingError { text: String::from(rating) })?
             }
         };
 
@@ -188,56 +176,87 @@ impl std::convert::TryFrom<&str> for RatingRequest {
     }
 }
 
-pub async fn do_rating(
+#[cfg(test)]
+mod rating_request_tests {
+
+    use super::*;
+
+    /// RatingRequest smoke tests
+    #[test]
+    fn rating_request_smoke() {
+
+        let req = RatingRequest::try_from("*** foo bar splat.mp3").unwrap();
+        assert_eq!(req.rating, 128);
+        assert_eq!(req.track, RatedTrack::File(PathBuf::from("foo bar splat.mp3")));
+        let req = RatingRequest::try_from("255").unwrap();
+        assert_eq!(req.rating, 255);
+        assert_eq!(req.track, RatedTrack::Current);
+        let _req = RatingRequest::try_from("******").unwrap_err();
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                           Rating Ops                                           //
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// Retrieve the rating for a track as an unsigned int from zero to 255
+pub async fn get_rating(client: &mut Client,
+                        sticker: &str,
+                        file: &str) -> Result<u8> {
+    match client.get_sticker(file, sticker).await? {
+        Some(text) => Ok(text.parse::<u8>()?),
+        None => Ok(0u8)
+    }
+}
+
+/// Set the rating for a track
+pub async fn set_rating(client: &mut Client,
+                        sticker: &str,
+                        file: &str,
+                        rating: u8) -> Result<()>  {
+    client.set_sticker(file, sticker, &format!("{}", rating)).await?;
+    Ok(())
+}
+
+// TODO(sp1ff): this interface needs to be re-factored
+/// Take the command message from our channel, apply it to the ratings for the given song,
+/// and optionally run a command on the server (presumably to keep the track's ID3 tags
+/// up-to-date).
+pub async fn handle_rating(
     msg: &str,
     client: &mut Client,
     rating_sticker: &str,
     ratings_cmd: &str,
     ratings_cmd_args: &Vec<String>,
     music_dir: &PathBuf,
-    file: &std::path::PathBuf,
-) -> Result<Option<PinnedCmdFut>> {
+    current_file: &std::path::PathBuf,
+) -> Result<Option<crate::PinnedCmdFut>> {
     let req = RatingRequest::try_from(msg)?;
-
-    let mut params = HashMap::<String, String>::new();
-
-    let pth = match req.track {
-        RatedTrack::Current => file.clone(),
+    let pathb = match req.track {
+        RatedTrack::Current => current_file.clone(),
         RatedTrack::File(p) => p,
         RatedTrack::Relative(_i) => {
-            return Err(Error::new(Cause::NotImplemented(String::from(
-                "Relative track position not supported, yet.",
-            ))));
+            return Err(Error::NotImplemented {
+                feature: String::from("Relative track position")});
         }
     };
+    let pth = pathb.to_str().context(BadPath{ pth: pathb.clone() })?;
+    debug!("Setting a rating of {} for `{}'.", req.rating, pth);
 
-    let mut path = PathBuf::from(music_dir);
-    let pth = match pth.to_str() {
-        Some(s) => s.to_string(),
-        None => {
-            return Err(Error::new(Cause::BadPath(path)));
-        }
-    };
+    set_rating(client, rating_sticker, &pth, req.rating).await?;
 
-    debug!("Setting a rating of {}.", req.rating);
-    client
-        .set_sticker(&pth, &rating_sticker, &format!("{}", req.rating))
-        .await?;
-
+    // TODO(sp1ff): factor out command-related logic?
     if ratings_cmd.len() == 0 {
         return Ok(None);
     }
+    let mut params = HashMap::<String, String>::new();
 
-    path.push(pth);
+    let mut full_path = PathBuf::from(music_dir);
+    full_path.push(pathb);
 
     params.insert(
         "full-file".to_string(),
-        match path.to_str() {
-            Some(s) => s.to_string(),
-            None => {
-                return Err(Error::new(Cause::BadPath(path)));
-            }
-        },
+        full_path.to_str().context(BadPath { pth: full_path.clone() })?.to_string()
     );
     params.insert("rating".to_string(), format!("{}", req.rating));
 
