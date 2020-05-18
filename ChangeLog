@@ -1,4 +1,6 @@
-2020-05-17  Michael Herstine  <sp1ff@pobox.com>
+2020-05-18  Michael Herstine  <sp1ff@pobox.com>
+
+	Updates to the latest build.
 
 	Massive re-factor:
 	    - split the code into a daemon & a client
