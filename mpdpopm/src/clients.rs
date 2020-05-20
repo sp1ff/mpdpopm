@@ -24,8 +24,6 @@
 //! types: [`Client`] for general-purpose use and [`IdleClient`] for long-lived connections
 //! listening for server notifiations
 
-use crate::replstrings::Error as ReplacementStringError;
-
 use async_trait::async_trait;
 use boolinator::Boolinator;
 use log::{debug, info};
@@ -107,8 +105,11 @@ pub enum Error {
         back: Backtrace,
     },
     /// Unknown idle subsystem
-    #[snafu(display("Uknown subsystem `{}'returned in respones to the `idle' command. This is \
-likely a bug; please consider reporting it to sp1ff@pobox.com", text))]
+    #[snafu(display(
+        "Uknown subsystem `{}'returned in respones to the `idle' command. This is \
+likely a bug; please consider reporting it to sp1ff@pobox.com",
+        text
+    ))]
     IdleSubsystem {
         text: String,
         #[snafu(backtrace(true))]
@@ -137,7 +138,7 @@ likely a bug; please consider reporting it to sp1ff@pobox.com", text))]
     },
     /// Couldn't parse song file
     #[snafu(display("Couldn't parse song file from {}", text))]
-    SongFile{
+    SongFile {
         text: String,
         #[snafu(backtrace(true))]
         back: Backtrace,
@@ -160,16 +161,19 @@ likely a bug; please consider reporting it to sp1ff@pobox.com", text))]
 
 // TODO(sp1ff): re-factor this into one place
 macro_rules! error_from {
-    ($t:ty) => (
+    ($t:ty) => {
         impl std::convert::From<$t> for Error {
             fn from(err: $t) -> Self {
-                Error::Other{ cause: Box::new(err), back: Backtrace::generate() }
+                Error::Other {
+                    cause: Box::new(err),
+                    back: Backtrace::generate(),
+                }
             }
         }
-    )
+    };
 }
 
-error_from!(ReplacementStringError);
+error_from!(crate::commands::Error);
 error_from!(regex::Error);
 error_from!(std::io::Error);
 error_from!(std::num::ParseFloatError);
@@ -247,10 +251,12 @@ mod test_mock {
     }
 
     impl Mock {
-        pub fn new(convo: &[(&str,&str)]) -> Mock {
+        pub fn new(convo: &[(&str, &str)]) -> Mock {
             let (left, right): (Vec<&str>, Vec<&str>) = convo.iter().copied().rev().unzip();
-            Mock{ inmsgs: left.iter().map(|x| x.to_string()).collect(),
-                  outmsgs: right.iter().map(|x| x.to_string()).collect() }
+            Mock {
+                inmsgs: left.iter().map(|x| x.to_string()).collect(),
+                outmsgs: right.iter().map(|x| x.to_string()).collect(),
+            }
         }
     }
 
@@ -279,7 +285,6 @@ mod test_mock {
         assert_eq!(mock.req("ping").await.unwrap(), "pong");
         let _should_panic = mock.req("not there!").await.unwrap();
     }
-
 }
 
 /// mpd connections talk one protocol over either a TCP or a Unix socket
@@ -294,7 +299,8 @@ pub struct MpdConnection<T: AsyncRead + AsyncWrite + Send + Unpin> {
 /// append it.
 #[async_trait]
 impl<T> RequestResponse for MpdConnection<T>
-    where T: AsyncRead + AsyncWrite + Send + Unpin
+where
+    T: AsyncRead + AsyncWrite + Send + Unpin,
 {
     async fn req(&mut self, msg: &str) -> Result<String> {
         self.req_w_hint(msg, 512).await
@@ -309,11 +315,15 @@ impl<T> RequestResponse for MpdConnection<T>
 
 /// Utility function to parse the initial response to a connection from mpd
 async fn parse_connect_rsp<T>(sock: &mut T) -> Result<String>
-    where T: AsyncRead + AsyncWrite + Send + Unpin {
+where
+    T: AsyncRead + AsyncWrite + Send + Unpin,
+{
     let mut buf = Vec::with_capacity(32);
     let _cb = sock.read_buf(&mut buf).await?;
     let text = String::from_utf8(buf)?;
-    text.starts_with("OK MPD ").as_option().context(Connect{ text: text.trim().to_string() })?;
+    text.starts_with("OK MPD ").as_option().context(Connect {
+        text: text.trim().to_string(),
+    })?;
     info!("Connected {}.", text[7..].trim());
     Ok(text[7..].trim().to_string())
 }
@@ -322,7 +332,10 @@ impl MpdConnection<TcpStream> {
     pub async fn new<A: ToSocketAddrs>(addr: A) -> Result<Box<dyn RequestResponse>> {
         let mut sock = TcpStream::connect(addr).await?;
         let proto_ver = parse_connect_rsp(&mut sock).await?;
-        Ok(Box::new(MpdConnection::<TcpStream>{ sock: sock, _proto_ver: proto_ver }))
+        Ok(Box::new(MpdConnection::<TcpStream> {
+            sock: sock,
+            _proto_ver: proto_ver,
+        }))
     }
 }
 
@@ -330,7 +343,10 @@ impl MpdConnection<UnixStream> {
     pub async fn new<P: AsRef<Path>>(pth: P) -> Result<Box<dyn RequestResponse>> {
         let mut sock = UnixStream::connect(pth).await?;
         let proto_ver = parse_connect_rsp(&mut sock).await?;
-        Ok(Box::new(MpdConnection::<UnixStream>{ sock: sock, _proto_ver: proto_ver }))
+        Ok(Box::new(MpdConnection::<UnixStream> {
+            sock: sock,
+            _proto_ver: proto_ver,
+        }))
     }
 }
 
@@ -371,15 +387,15 @@ impl Client {
     }
 
     pub fn new(stream: Box<dyn RequestResponse>) -> Result<Client> {
-        Ok( Client{
+        Ok(Client {
             stream: stream,
             re_state: Regex::new(&RE_STATE)?,
             re_songid: Regex::new(RE_SONGID)?,
             re_elapsed: Regex::new(RE_ELAPSED)?,
             re_file: Regex::new(RE_FILE)?,
-            re_duration: Regex::new(RE_DURATION)? } )
+            re_duration: Regex::new(RE_DURATION)?,
+        })
     }
-
 }
 
 /// Utility function that applies the given regexp to `text`, and returns the first sub-group.
@@ -387,23 +403,22 @@ impl Client {
 /// The two context selectors shouldn't be needed, but they don't implement Clone, and I can't
 /// get snafu's `context` to borrow them.
 fn cap<C1, C2>(re: &regex::Regex, text: &str, ctx1: C1, ctx2: C2) -> Result<String>
-where C1: snafu::IntoError<Error, Source = snafu::NoneError>,
-      C2: snafu::IntoError<Error, Source = snafu::NoneError>,
+where
+    C1: snafu::IntoError<Error, Source = snafu::NoneError>,
+    C2: snafu::IntoError<Error, Source = snafu::NoneError>,
 {
     Ok(re
-       .captures(text)
-       .context( ctx1 )?
-       .get(1)
-       .context( ctx2 )?
-       .as_str()
-       .to_string()
-    )
+        .captures(text)
+        .context(ctx1)?
+        .get(1)
+        .context(ctx2)?
+        .as_str()
+        .to_string())
 }
 
 impl Client {
     /// Retrieve the current server status.
     pub async fn status(&mut self) -> Result<PlayerStatus> {
-
         // We begin with sending the "status" command: "Reports the current status of the player and
         // the volume level." Per the docs, "MPD may omit lines which have no (known) value", so I
         // can't really count on particular lines being there. Tho nothing is said in the docs, I
@@ -415,32 +430,68 @@ impl Client {
         // at the beginning of a line bailed & just went ahead. This makes for more succinct
         // code, since I can't count on order, either.
 
-        let state = cap(&self.re_state,
-                        &text, PlayState{ text: text.to_string() },
-                        PlayState{ text: text.to_string() })?;
+        let state = cap(
+            &self.re_state,
+            &text,
+            PlayState {
+                text: text.to_string(),
+            },
+            PlayState {
+                text: text.to_string(),
+            },
+        )?;
 
         match state.as_str() {
             "stop" => Ok(PlayerStatus::Stopped),
             "play" | "pause" => {
-                let songid = cap(&self.re_songid, &text,
-                                 SongId { text: text.to_string() },
-                                 SongId { text: text.to_string() })?
-                    .parse::<u64>()?;
-                let elapsed = cap(&self.re_elapsed, &text,
-                                  Elapsed{ text: text.to_string() },
-                                  Elapsed{ text: text.to_string() })?
-                    .parse::<f64>()?;
+                let songid = cap(
+                    &self.re_songid,
+                    &text,
+                    SongId {
+                        text: text.to_string(),
+                    },
+                    SongId {
+                        text: text.to_string(),
+                    },
+                )?
+                .parse::<u64>()?;
+                let elapsed = cap(
+                    &self.re_elapsed,
+                    &text,
+                    Elapsed {
+                        text: text.to_string(),
+                    },
+                    Elapsed {
+                        text: text.to_string(),
+                    },
+                )?
+                .parse::<f64>()?;
 
                 // navigate from `songid'-- don't send a "currentsong" message-- the current song
                 // could have changed
                 let text = self.stream.req(&format!("playlistid {}", songid)).await?;
 
-                let file = cap(&self.re_file, &text,
-                               SongFile{ text: text.to_string() },
-                               SongFile{ text: text.to_string() })?;
-                let duration = cap(&self.re_duration, &text, Duration{ text: text.to_string() },
-                                   Duration{ text: text.to_string() })?
-                    .parse::<f64>()?;
+                let file = cap(
+                    &self.re_file,
+                    &text,
+                    SongFile {
+                        text: text.to_string(),
+                    },
+                    SongFile {
+                        text: text.to_string(),
+                    },
+                )?;
+                let duration = cap(
+                    &self.re_duration,
+                    &text,
+                    Duration {
+                        text: text.to_string(),
+                    },
+                    Duration {
+                        text: text.to_string(),
+                    },
+                )?
+                .parse::<f64>()?;
 
                 let curr = CurrentSong::new(songid, PathBuf::from(file), elapsed, duration);
 
@@ -450,7 +501,10 @@ impl Client {
                     Ok(PlayerStatus::Pause(curr))
                 }
             }
-            _ => Err( Error::UnknownState{ state: state.to_string(), back: Backtrace::generate() } )
+            _ => Err(Error::UnknownState {
+                state: state.to_string(),
+                back: Backtrace::generate(),
+            }),
         }
     }
 
@@ -458,7 +512,6 @@ impl Client {
     // sticker value (if present) to the expected type?
     /// Retrieve a song sticker by name, as a string
     pub async fn get_sticker(&mut self, file: &str, sticker_name: &str) -> Result<Option<String>> {
-
         let msg = format!("sticker get song \"{}\" \"{}\"", file, sticker_name);
         let text = self.stream.req(&msg).await?;
         debug!("Sent message `{}'; got `{}'", &msg, &text);
@@ -466,27 +519,38 @@ impl Client {
         let prefix = format!("sticker: {}=", sticker_name);
         if text.starts_with(&prefix) {
             // Ok(Some(text[prefix.len()..].split('\n').collect()[0]))
-            Ok(Some(text[prefix.len()..].split('\n').collect::<Vec<&str>>()[0].to_string()))
-        } else if text.starts_with("ACK ") {
+            Ok(Some(
+                text[prefix.len()..].split('\n').collect::<Vec<&str>>()[0].to_string(),
+            ))
+        } else if text.starts_with("ACK ") && text.ends_with("no such sticker\n") {
             Ok(None)
         } else {
-            Err(Error::StickerGet{ text: text.to_string(), back: Backtrace::generate() })
+            Err(Error::StickerGet {
+                text: text.to_string(),
+                back: Backtrace::generate(),
+            })
         }
-
     }
 
     // TODO(sp1ff): What's the idiomatic way to allow callers to pass the sticker value by any
     // type?
     /// Set a song sticker by name, as text
-    pub async fn set_sticker(&mut self, file: &str, sticker_name: &str, sticker_value: &str) ->
-        Result<()>
-    {
-        let msg = format!("sticker set song \"{}\" \"{}\" \"{}\"", file, sticker_name,
-                          sticker_value);
+    pub async fn set_sticker(
+        &mut self,
+        file: &str,
+        sticker_name: &str,
+        sticker_value: &str,
+    ) -> Result<()> {
+        let msg = format!(
+            "sticker set song \"{}\" \"{}\" \"{}\"",
+            file, sticker_name, sticker_value
+        );
         let text = self.stream.req(&msg).await?;
         debug!("Sent `{}'; got `{}'", &msg, &text);
 
-        text.starts_with("OK").as_option().context(StickerSet{ text: text.to_string() })?;
+        text.starts_with("OK").as_option().context(StickerSet {
+            text: text.to_string(),
+        })?;
         Ok(())
     }
 
@@ -494,9 +558,11 @@ impl Client {
     pub async fn send_to_playlist(&mut self, file: &str, pl: &str) -> Result<()> {
         let msg = format!("playlistadd \"{}\" \"{}\"", pl, file);
         let text = self.stream.req(&msg).await?;
-        debug!("Sent `{}'; got `{}'.", &msg,  &text);
+        debug!("Sent `{}'; got `{}'.", &msg, &text);
 
-        text.starts_with("OK").as_option().context(StickerSet{ text: text.to_string() })?;
+        text.starts_with("OK").as_option().context(StickerSet {
+            text: text.to_string(),
+        })?;
         Ok(())
     }
 
@@ -504,9 +570,11 @@ impl Client {
     pub async fn send_message(&mut self, chan: &str, msg: &str) -> Result<()> {
         let msg = format!("sendmessage {} \"{}\"", chan, msg);
         let text = self.stream.req(&msg).await?;
-        debug!("Sent `{}'; got `{}'.", &msg,  &text);
+        debug!("Sent `{}'; got `{}'.", &msg, &text);
 
-        text.starts_with("OK").as_option().context(SendMessage{ text: text.to_string() })?;
+        text.starts_with("OK").as_option().context(SendMessage {
+            text: text.to_string(),
+        })?;
         Ok(())
     }
 }
@@ -515,15 +583,16 @@ impl Client {
 /// Let's test Client!
 mod client_tests {
 
-    use super::*;
     use super::test_mock::Mock;
+    use super::*;
 
     /// Some basic "smoke" tests
     #[tokio::test]
     async fn client_smoke_test() {
-
-        let mock = Box::new(Mock::new(&[("sticker get song \"foo.mp3\" \"stick\"",
-                                         "sticker: stick=splat\nOK\n")]));
+        let mock = Box::new(Mock::new(&[(
+            "sticker get song \"foo.mp3\" \"stick\"",
+            "sticker: stick=splat\nOK\n",
+        )]));
         let mut cli = Client::new(mock).unwrap();
         let val = cli.get_sticker("foo.mp3", "stick").await.unwrap().unwrap();
         assert_eq!(val, "splat");
@@ -532,11 +601,11 @@ mod client_tests {
     /// Test the `status' method
     #[tokio::test]
     async fn test_status() {
-
-        let mock = Box::new(Mock::new(
-            &[("status",
-               // When the server is playing or paused, the response will look something like this:
-               "volume: -1
+        let mock = Box::new(Mock::new(&[
+            (
+                "status",
+                // When the server is playing or paused, the response will look something like this:
+                "volume: -1
 repeat: 0
 random: 0
 single: 0
@@ -553,11 +622,13 @@ audio: 44100:24:2
 nextsong: 15
 nextsongid: 16
 elapsed: 140.585
-OK"),
-              // Should respond with a playlist id request
-              ("playlistid 15",
-              // Should look something like this:
-              "file: U-Z/U2 - Who's Gonna RIDE Your WILD HORSES.mp3
+OK",
+            ),
+            // Should respond with a playlist id request
+            (
+                "playlistid 15",
+                // Should look something like this:
+                "file: U-Z/U2 - Who's Gonna RIDE Your WILD HORSES.mp3
 Last-Modified: 2004-12-24T19:26:13Z
 Artist: U2
 Title: Who's Gonna RIDE Your WILD HOR
@@ -566,10 +637,12 @@ Time: 316
 Pos: 41
 Id: 42
 duration: 249.994
-OK"),
-              ("status",
-              // But if the state is "stop", much of that will be missing; it will look more like:
-              "volume: -1
+OK",
+            ),
+            (
+                "status",
+                // But if the state is "stop", much of that will be missing; it will look more like:
+                "volume: -1
 repeat: 0
 random: 0
 single: 0
@@ -578,52 +651,64 @@ playlist: 84
 playlistlength: 27
 mixrampdb: 0.000000
 state: stop
-OK"),
-              // Finally, let's simulate something being really wrong
-              ("status",
-               "volume: -1
+OK",
+            ),
+            // Finally, let's simulate something being really wrong
+            (
+                "status",
+                "volume: -1
 repeat: 0
-state: no-idea!?")]));
+state: no-idea!?",
+            ),
+        ]));
         let mut cli = Client::new(mock).unwrap();
         let stat = cli.status().await.unwrap();
         match stat {
             PlayerStatus::Play(curr) => {
                 assert_eq!(curr.songid, 15);
-                assert_eq!(curr.file.to_str().unwrap(),
-                           "U-Z/U2 - Who's Gonna RIDE Your WILD HORSES.mp3");
+                assert_eq!(
+                    curr.file.to_str().unwrap(),
+                    "U-Z/U2 - Who's Gonna RIDE Your WILD HORSES.mp3"
+                );
                 assert_eq!(curr.elapsed, 140.585);
                 assert_eq!(curr.duration, 249.994);
-            },
-            _ => panic!()
+            }
+            _ => panic!(),
         }
 
         let stat = cli.status().await.unwrap();
         match stat {
             PlayerStatus::Stopped => (),
-            _ => panic!()
+            _ => panic!(),
         }
 
         let stat = cli.status().await;
         match stat {
             Err(_) => (),
-            Ok(_) => panic!()
+            Ok(_) => panic!(),
         }
     }
 
     /// Test the `get_sticker' method
     #[tokio::test]
     async fn test_get_sticker() {
-
-        let mock = Box::new(Mock::new(
-            &[("sticker get song \"foo.mp3\" \"stick\"",
-               // On success, should get something like this...
-               "sticker: stick=2\nOK\n"),
-              ("sticker get song \"foo.mp3\" \"stick\"",
-               // and on failure, something like this:
-               "ACK [50@0] {sticker} no such sticker"),
-              ("sticker get song \"foo.mp3\" \"stick\"",
-               // Finally, let's try something nuts
-               "")]));
+        let mock = Box::new(Mock::new(&[
+            (
+                "sticker get song \"foo.mp3\" \"stick\"",
+                // On success, should get something like this...
+                "sticker: stick=2\nOK\n",
+            ),
+            (
+                "sticker get song \"foo.mp3\" \"stick\"",
+                // and on failure, something like this:
+                "ACK [50@0] {sticker} no such sticker\n",
+            ),
+            (
+                "sticker get song \"foo.mp3\" \"stick\"",
+                // Finally, let's try something nuts
+                "",
+            ),
+        ]));
         let mut cli = Client::new(mock).unwrap();
         let val = cli.get_sticker("foo.mp3", "stick").await.unwrap().unwrap();
         assert_eq!(val, "2");
@@ -634,31 +719,39 @@ state: no-idea!?")]));
     /// Test the `set_sticker' method
     #[tokio::test]
     async fn test_set_sticker() {
-        let mock = Box::new(Mock::new(
-            &[("sticker set song \"foo.mp3\" \"stick\" \"2\"",
-               "OK\n"),
-              ("sticker set song \"foo.mp3\" \"stick\" \"2\"",
-               "ACK [50@0] {sticker} some error"),
-              ("sticker set song \"foo.mp3\" \"stick\" \"2\"",
-               "this makes no sense as a response")]));
+        let mock = Box::new(Mock::new(&[
+            ("sticker set song \"foo.mp3\" \"stick\" \"2\"", "OK\n"),
+            (
+                "sticker set song \"foo.mp3\" \"stick\" \"2\"",
+                "ACK [50@0] {sticker} some error",
+            ),
+            (
+                "sticker set song \"foo.mp3\" \"stick\" \"2\"",
+                "this makes no sense as a response",
+            ),
+        ]));
         let mut cli = Client::new(mock).unwrap();
         let _val = cli.set_sticker("foo.mp3", "stick", "2").await.unwrap();
         let _val = cli.set_sticker("foo.mp3", "stick", "2").await.unwrap_err();
         let _val = cli.set_sticker("foo.mp3", "stick", "2").await.unwrap_err();
-
     }
 
     /// Test the `send_to_playlist' method
     #[tokio::test]
     async fn test_send_to_playlist() {
-        let mock = Box::new(Mock::new(
-            &[("playlistadd \"foo.m3u\" \"foo.mp3\"",
-               "OK\n"),
-              ("playlistadd \"foo.m3u\" \"foo.mp3\"",
-               "ACK [101@0] {playlist} some error\n")]));
+        let mock = Box::new(Mock::new(&[
+            ("playlistadd \"foo.m3u\" \"foo.mp3\"", "OK\n"),
+            (
+                "playlistadd \"foo.m3u\" \"foo.mp3\"",
+                "ACK [101@0] {playlist} some error\n",
+            ),
+        ]));
         let mut cli = Client::new(mock).unwrap();
         let _val = cli.send_to_playlist("foo.mp3", "foo.m3u").await.unwrap();
-        let _val = cli.send_to_playlist("foo.mp3", "foo.m3u").await.unwrap_err();
+        let _val = cli
+            .send_to_playlist("foo.mp3", "foo.m3u")
+            .await
+            .unwrap_err();
     }
 }
 
@@ -681,9 +774,9 @@ impl IdleSubSystem {
         } else if x == "message" {
             Ok(IdleSubSystem::Message)
         } else {
-            Err(Error::IdleSubsystem{
+            Err(Error::IdleSubsystem {
                 text: String::from(text),
-                back: Backtrace::generate()
+                back: Backtrace::generate(),
             })
         }
     }
@@ -724,7 +817,9 @@ impl IdleClient {
     pub async fn subscribe(&mut self, chan: &str) -> Result<()> {
         let text = self.conn.req(&format!("subscribe {}", chan)).await?;
         debug!("Sent subscribe message for {}; got `{}'.", chan, text);
-        text.starts_with("OK").as_option().context( Subscribe {text: String::from(text) })?;
+        text.starts_with("OK").as_option().context(Subscribe {
+            text: String::from(text),
+        })?;
         debug!("Subscribed to {}.", chan);
         Ok(())
     }
@@ -745,11 +840,17 @@ impl IdleClient {
         //
         // We remain subscribed, but we need to send a new idle message.
 
-        text.starts_with("changed: ").as_option().context(Idle { text: String::from(&text) })?;
-        let idx = text.find('\n').context( Idle { text: String::from(&text) } )?;
+        text.starts_with("changed: ").as_option().context(Idle {
+            text: String::from(&text),
+        })?;
+        let idx = text.find('\n').context(Idle {
+            text: String::from(&text),
+        })?;
         let result = IdleSubSystem::from_string(&text[9..idx])?;
         let text = text[idx + 1..].to_string();
-        text.starts_with("OK").as_option().context( Idle { text: String::from(text) })?;
+        text.starts_with("OK").as_option().context(Idle {
+            text: String::from(text),
+        })?;
 
         Ok(result)
     }
@@ -782,8 +883,11 @@ impl IdleClient {
         for line in text.lines() {
             match state {
                 State::Init => {
-                    line.starts_with("channel: ").as_option()
-                        .context( GetMessages {text: String::from(line)})?;
+                    line.starts_with("channel: ")
+                        .as_option()
+                        .context(GetMessages {
+                            text: String::from(line),
+                        })?;
                     chan = String::from(&line[9..]);
                     state = State::Running;
                 }
@@ -822,29 +926,30 @@ impl IdleClient {
 /// Let's test IdleClient!
 mod idle_client_tests {
 
-    use super::*;
     use super::test_mock::Mock;
+    use super::*;
 
     /// Some basic "smoke" tests
     #[tokio::test]
     async fn test_get_messages() {
-        let mock = Box::new(Mock::new(
-            &[("readmessages",
-               // If a ratings message is sent, we'll get: "changed: message\nOK\n", to which we
-               // respond "readmessages", which should give us something like:
-               //
-               //     channel: ratings
-               //     message: 255
-               //     OK
-               //
-               // We remain subscribed, but we need to send a new idle message.
-               "channel: ratings
+        let mock = Box::new(Mock::new(&[(
+            "readmessages",
+            // If a ratings message is sent, we'll get: "changed: message\nOK\n", to which we
+            // respond "readmessages", which should give us something like:
+            //
+            //     channel: ratings
+            //     message: 255
+            //     OK
+            //
+            // We remain subscribed, but we need to send a new idle message.
+            "channel: ratings
 message: 255
 message: 128
 channel: send-to-playlist
 message: foo.m3u
 OK
-")]));
+",
+        )]));
         let mut cli = IdleClient::new(mock).unwrap();
         let hm = cli.get_messages().await.unwrap();
         let val = hm.get("ratings").unwrap();
@@ -852,6 +957,4 @@ OK
         let val = hm.get("send-to-playlist").unwrap();
         assert!(val.len() == 1);
     }
-
-
 }

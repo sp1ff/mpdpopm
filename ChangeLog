@@ -1,3 +1,13 @@
+2020-05-20  Michael Herstine  <sp1ff@pobox.com>
+
+	Another massive re-factor.
+	Getting closer to "thinking in Rust" (I think). Also implemented new
+	commands:
+
+	    1. setpc: set the playcount expplicitly (and run any associated
+	       command on the server)
+	    2. setlp: set the lastplayed timesetamp explicitly
+
 2020-05-18  Michael Herstine  <sp1ff@pobox.com>
 
 	Updates to the latest build.

@@ -28,11 +28,12 @@
 
 use mpdpopm::{
     clients::{Client, PlayerStatus},
+    playcounts::{get_last_played, get_play_count},
     ratings::get_rating,
 };
 
 use clap::{App, Arg};
-use log::{trace, warn, LevelFilter};
+use log::{info, trace, LevelFilter};
 use log4rs::{
     append::console::{ConsoleAppender, Target},
     config::{Appender, Root},
@@ -67,14 +68,24 @@ pub enum Error {
     NoSubCommand,
     #[snafu(display(
         "The config argument couldn't be retrieved. This is likely a bug; please \
-                     consider filing a report with sp1ff@pobox.com"
+consider filing a report with sp1ff@pobox.com"
     ))]
     NoConfigArg,
     #[snafu(display(
         "The rating argument couldn't be retrieved. This is likely a bug; please \
-                     consider filing a report with sp1ff@pobox.com"
+consider filing a report with sp1ff@pobox.com"
     ))]
     NoRating,
+    #[snafu(display(
+        "The playcount argument couldn't be retrieved. This is likely a bug; please \
+consider filing a report with sp1ff@pobox.com"
+    ))]
+    NoPlayCount,
+    #[snafu(display(
+        "The last-played argument couldn't be retrieved. This is likely a bug; please \
+consider filing a report with sp1ff@pobox.com"
+    ))]
+    NoLastPlayed,
     #[snafu(display(
         "While trying to read the configuration file `{:?}', got `{}'",
         config,
@@ -115,12 +126,14 @@ macro_rules! error_from {
     };
 }
 
+error_from!(log::SetLoggerError);
 error_from!(mpdpopm::Error);
 error_from!(mpdpopm::clients::Error);
+error_from!(mpdpopm::playcounts::Error);
 error_from!(mpdpopm::ratings::Error);
-error_from!(log::SetLoggerError);
 error_from!(serde_lexpr::error::Error);
 error_from!(std::env::VarError);
+error_from!(std::num::ParseIntError);
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -199,42 +212,16 @@ async fn map_tracks<'a, Iter: Iterator<Item = &'a str>>(
     Ok(files)
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-//                                          sub-commands                                          //
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-/// Retrieve ratings for one or more tracks
-async fn get_ratings<'a, Iter: Iterator<Item = &'a str>>(
-    client: &mut Client,
-    sticker: &str,
-    tracks: Option<Iter>,
-    with_track: bool,
-) -> Result<()> {
-    let mut ratings: Vec<(String, u8)> = Vec::new();
-    for file in map_tracks(client, tracks).await? {
-        let rating = get_rating(client, sticker, &file).await?;
-        ratings.push((file, rating));
-    }
-
-    if ratings.len() == 1 && !with_track {
-        warn!("{}", ratings[0].1);
-    } else {
-        for pair in ratings {
-            warn!("{}: {}", pair.0, pair.1);
-        }
-    }
-
-    Ok(())
-}
-
-/// Rate a track
-async fn set_rating(
-    client: &mut Client,
-    chan: &str,
-    rating: &str,
-    track: Option<&str>,
-) -> Result<()> {
-    let uri = match track {
+/// Resolve a `track' argument to a String containing an mpd URI
+///
+/// Several sub-commands take zero or one positional arguments meant to name a track, with the
+/// convention that zero indicates that the sub-command should use the currently playing track.
+/// This is a convenience function for mapping the value returned by [`value_of`] to a
+/// convenient representation of the user's intentions.
+///
+/// [`value_of`]: [`clap::ArgMatches::value_of`]
+async fn _map_track(client: &mut Client, arg: Option<&str>) -> Result<String> {
+    let uri = match arg {
         Some(uri) => uri.to_string(),
         None => {
             let file = match client.status().await? {
@@ -252,10 +239,172 @@ async fn set_rating(
             file
         }
     };
+    Ok(uri)
+}
 
-    Ok(client
-        .send_message(chan, &format!("rate {} {}", rating, uri))
-        .await?)
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                          sub-commands                                          //
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// Retrieve ratings for one or more tracks
+async fn get_ratings<'a, Iter: Iterator<Item = &'a str>>(
+    client: &mut Client,
+    sticker: &str,
+    tracks: Option<Iter>,
+    with_uri: bool,
+) -> Result<()> {
+    let mut ratings: Vec<(String, u8)> = Vec::new();
+    for file in map_tracks(client, tracks).await? {
+        let rating = get_rating(client, sticker, &file).await?;
+        ratings.push((file, rating));
+    }
+
+    if ratings.len() == 1 && !with_uri {
+        println!("{}", ratings[0].1);
+    } else {
+        for pair in ratings {
+            println!("{}: {}", pair.0, pair.1);
+        }
+    }
+
+    Ok(())
+}
+
+/// Rate a track
+async fn set_rating(
+    client: &mut Client,
+    chan: &str,
+    rating: &str,
+    arg: Option<&str>,
+) -> Result<()> {
+    let cmd = match arg {
+        Some(uri) => format!("rate \\\"{}\\\" \\\"{}\\\"", rating, uri),
+        None => format!("rate \\\"{}\\\"", rating),
+    };
+    client.send_message(chan, &cmd).await?;
+
+    match arg {
+        Some(uri) => info!("Set the rating for \"{}\" to \"{}\".", uri, rating),
+        None => info!("Set the rating for the current song to \"{}\".", rating),
+    }
+
+    Ok(())
+}
+
+/// Retrieve the playcount for one or more tracks
+async fn get_play_counts<'a, Iter: Iterator<Item = &'a str>>(
+    client: &mut Client,
+    sticker: &str,
+    tracks: Option<Iter>,
+    with_uri: bool,
+) -> Result<()> {
+    let mut playcounts: Vec<(String, usize)> = Vec::new();
+    for file in map_tracks(client, tracks).await? {
+        let playcount = match get_play_count(client, sticker, &file).await? {
+            Some(pc) => pc,
+            None => 0,
+        };
+        playcounts.push((file, playcount));
+    }
+
+    // TODO(sp1ff): what if the PC isn't there?
+    if playcounts.len() == 1 && !with_uri {
+        println!("{}", playcounts[0].1);
+    } else {
+        for pair in playcounts {
+            println!("{}: {}", pair.0, pair.1);
+        }
+    }
+
+    Ok(())
+}
+
+/// Set the playcount for a track
+async fn set_play_counts(
+    client: &mut Client,
+    chan: &str,
+    playcount: usize,
+    arg: Option<&str>,
+) -> Result<()> {
+    let cmd = match arg {
+        // TODO(sp1ff): implement the `setpc' command!
+        Some(uri) => format!("setpc {} \"{}\"", playcount, uri),
+        None => format!("setpc {}", playcount),
+    };
+    client.send_message(chan, &cmd).await?;
+
+    match arg {
+        Some(uri) => info!("Set the playcount for \"{}\" to \"{}\".", uri, playcount),
+        None => info!(
+            "Set the playcount for the current song to \"{}\".",
+            playcount
+        ),
+    }
+
+    Ok(())
+}
+
+/// Retrieve the last played time for one or more tracks
+async fn get_last_playeds<'a, Iter: Iterator<Item = &'a str>>(
+    client: &mut Client,
+    sticker: &str,
+    tracks: Option<Iter>,
+    with_uri: bool,
+) -> Result<()> {
+    let mut lastplayeds: Vec<(String, Option<u64>)> = Vec::new();
+    for file in map_tracks(client, tracks).await? {
+        let lastplayed = get_last_played(client, sticker, &file).await?;
+        lastplayeds.push((file, lastplayed));
+    }
+
+    // TODO(sp1ff): What if last played isn't there?
+    if lastplayeds.len() == 1 && !with_uri {
+        println!(
+            "{}",
+            match lastplayeds[0].1 {
+                Some(t) => format!("{}", t),
+                None => String::from("N/A"),
+            }
+        );
+    } else {
+        for pair in lastplayeds {
+            println!(
+                "{}: {}",
+                pair.0,
+                match pair.1 {
+                    Some(t) => format!("{}", t),
+                    None => String::from("N/A"),
+                }
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// Set the playcount for a track
+async fn set_last_playeds(
+    client: &mut Client,
+    chan: &str,
+    lastplayed: u64,
+    arg: Option<&str>,
+) -> Result<()> {
+    let cmd = match arg {
+        // TODO(sp1ff): implement the `setlp' command
+        Some(uri) => format!("setlp {} \"{}\"", lastplayed, uri),
+        None => format!("setlp {}", lastplayed),
+    };
+    client.send_message(chan, &cmd).await?;
+
+    match arg {
+        Some(uri) => info!("Set last played for \"{}\" to \"{}\".", uri, lastplayed),
+        None => info!(
+            "Set last played for the current song to \"{}\".",
+            lastplayed
+        ),
+    }
+
+    Ok(())
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -298,7 +447,7 @@ async fn main() -> Result<()> {
 With no arguments, retrieve the rating of the current song & print it
 on stdout. With one argument, retrieve that track's rating & print it
 on stdout. With multiple arguments, print their ratings on stdout, one
- per line, prefixed by the track name.",
+per line, prefixed by the track name.",
                 )
                 .arg(
                     Arg::with_name("with-uri")
@@ -317,6 +466,65 @@ With no arguments, set the rating of the current song. With a single
 argument, rate that song.",
                 )
                 .arg(Arg::with_name("rating").index(1).required(true))
+                .arg(Arg::with_name("track").index(2)),
+        )
+        .subcommand(
+            App::new("get-pc")
+                .about("retrieve the play count for one or more tracks")
+                .long_about(
+                    "
+With no arguments, retrieve the play count of the current song & print it
+on stdout. With one argument, retrieve that track's play count & print it
+on stdout. With multiple arguments, print their play counts on stdout, one
+per line, prefixed by the track name.",
+                )
+                .arg(
+                    Arg::with_name("with-uri")
+                        .short('u')
+                        .long("with-uri")
+                        .about("Always show the song URI, even when there is only one"),
+                )
+                .arg(Arg::with_name("track").multiple(true)),
+        )
+        .subcommand(
+            App::new("set-pc")
+                .about("set the play count for one track")
+                .long_about(
+                    "
+With no arguments, set the play count of the current song. With a single
+argument, set the play count for that song.",
+                )
+                .arg(Arg::with_name("play-count").index(1).required(true))
+                .arg(Arg::with_name("track").index(2)),
+        )
+        .subcommand(
+            App::new("get-lp")
+                .about("retrieve the last played timestamp for one or more tracks")
+                .long_about(
+                    "
+With no arguments, retrieve the last played timestamp of the current
+song & print it on stdout. With one argument, retrieve that track's
+last played time & print it on stdout. With multiple arguments, print
+their last played times on stdout, one per line, prefixed by the track
+name.",
+                )
+                .arg(
+                    Arg::with_name("with-uri")
+                        .short('u')
+                        .long("with-uri")
+                        .about("Always show the song URI, even when there is only one"),
+                )
+                .arg(Arg::with_name("track").multiple(true)),
+        )
+        .subcommand(
+            App::new("set-lp")
+                .about("set the last played timestamp for one track")
+                .long_about(
+                    "
+With no arguments, set the last played time of the current song. With a single
+argument, set the last played time for that song.",
+                )
+                .arg(Arg::with_name("last-played").index(1).required(true))
                 .arg(Arg::with_name("track").index(2)),
         )
         .get_matches();
@@ -384,6 +592,42 @@ argument, rate that song.",
             &mut client,
             &cfg.commands_chan,
             subm.value_of("rating").context(NoRating {})?,
+            subm.value_of("track"),
+        )
+        .await?);
+    } else if let Some(subm) = matches.subcommand_matches("get-pc") {
+        return Ok(get_play_counts(
+            &mut client,
+            &cfg.playcount_sticker,
+            subm.values_of("track"),
+            subm.is_present("with-uri"),
+        )
+        .await?);
+    } else if let Some(subm) = matches.subcommand_matches("set-pc") {
+        return Ok(set_play_counts(
+            &mut client,
+            &cfg.commands_chan,
+            subm.value_of("play-count")
+                .context(NoPlayCount {})?
+                .parse::<usize>()?,
+            subm.value_of("track"),
+        )
+        .await?);
+    } else if let Some(subm) = matches.subcommand_matches("get-lp") {
+        return Ok(get_last_playeds(
+            &mut client,
+            &cfg.lastplayed_sticker,
+            subm.values_of("track"),
+            subm.is_present("with-uri"),
+        )
+        .await?);
+    } else if let Some(subm) = matches.subcommand_matches("set-lp") {
+        return Ok(set_last_playeds(
+            &mut client,
+            &cfg.commands_chan,
+            subm.value_of("last-played")
+                .context(NoLastPlayed {})?
+                .parse::<u64>()?,
             subm.value_of("track"),
         )
         .await?);

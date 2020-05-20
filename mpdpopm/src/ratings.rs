@@ -39,11 +39,10 @@
 //! the track may contain whitespace). If omitted, the rating is taken to apply to the current
 //! track.
 
-use crate::clients::Client;
-use crate::replstrings::{process_replacements};
-use crate::replstrings::Error as ReplacementStringError;
+use crate::clients::{Client, PlayerStatus};
+use crate::commands::spawn;
 
-use log::{debug, info};
+use log::debug;
 use snafu::{Backtrace, GenerateBacktrace, OptionExt, ResultExt, Snafu};
 
 use std::collections::HashMap;
@@ -71,10 +70,10 @@ pub enum Error {
         cause: Box<dyn std::error::Error>,
         text: String,
     },
+    #[snafu(display("Can't rate the current track when the player is stopped"))]
+    PlayerStopped,
     #[snafu(display("`{}' is not implemented, yet", feature))]
-    NotImplemented {
-        feature: String,
-    },
+    NotImplemented { feature: String },
     #[snafu(display("Path `{}' cannot be converted to a String", pth.display()))]
     BadPath {
         pth: PathBuf,
@@ -85,17 +84,20 @@ pub enum Error {
 
 // TODO(sp1ff): re-factor this into one place
 macro_rules! error_from {
-    ($t:ty) => (
+    ($t:ty) => {
         impl std::convert::From<$t> for Error {
             fn from(err: $t) -> Self {
-                Error::Other{ cause: Box::new(err), back: Backtrace::generate() }
+                Error::Other {
+                    cause: Box::new(err),
+                    back: Backtrace::generate(),
+                }
             }
         }
-    )
+    };
 }
 
 error_from!(crate::clients::Error);
-error_from!(ReplacementStringError);
+error_from!(crate::commands::Error);
 error_from!(std::num::ParseIntError);
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -151,7 +153,9 @@ impl std::convert::TryFrom<&str> for RatingRequest {
                 "****" => 196,
                 "*****" => 255,
                 // failing that, we try just interperting `rating' as an unsigned integer:
-                _ => rating.parse::<u8>().context(RatingError { text: String::from(rating) })?
+                _ => rating.parse::<u8>().context(RatingError {
+                    text: String::from(rating),
+                })?,
             }
         };
 
@@ -184,10 +188,12 @@ mod rating_request_tests {
     /// RatingRequest smoke tests
     #[test]
     fn rating_request_smoke() {
-
         let req = RatingRequest::try_from("*** foo bar splat.mp3").unwrap();
         assert_eq!(req.rating, 128);
-        assert_eq!(req.track, RatedTrack::File(PathBuf::from("foo bar splat.mp3")));
+        assert_eq!(
+            req.track,
+            RatedTrack::File(PathBuf::from("foo bar splat.mp3"))
+        );
         let req = RatingRequest::try_from("255").unwrap();
         assert_eq!(req.rating, 255);
         assert_eq!(req.track, RatedTrack::Current);
@@ -200,81 +206,88 @@ mod rating_request_tests {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// Retrieve the rating for a track as an unsigned int from zero to 255
-pub async fn get_rating(client: &mut Client,
-                        sticker: &str,
-                        file: &str) -> Result<u8> {
+pub async fn get_rating(client: &mut Client, sticker: &str, file: &str) -> Result<u8> {
     match client.get_sticker(file, sticker).await? {
         Some(text) => Ok(text.parse::<u8>()?),
-        None => Ok(0u8)
+        None => Ok(0u8),
     }
 }
 
-/// Set the rating for a track
-pub async fn set_rating(client: &mut Client,
-                        sticker: &str,
-                        file: &str,
-                        rating: u8) -> Result<()>  {
-    client.set_sticker(file, sticker, &format!("{}", rating)).await?;
-    Ok(())
+/// Core routine for setting the rating for a track-- will run the associated command, if present
+pub async fn set_rating<I: Iterator<Item = String>>(
+    client: &mut Client,
+    sticker: &str,
+    file: &str,
+    rating: u8,
+    cmd: &str,
+    args: &mut I,
+    music_dir: &str,
+) -> Result<Option<crate::commands::PinnedCmdFut>> {
+    client
+        .set_sticker(file, sticker, &format!("{}", rating))
+        .await?;
+
+    // TODO(sp1ff): factor out command-related logic?
+    if cmd.len() == 0 {
+        return Ok(None);
+    }
+    let mut params = HashMap::<String, String>::new();
+
+    let full_path: PathBuf = [music_dir, file].iter().collect();
+    params.insert(
+        "full-file".to_string(),
+        full_path
+            .to_str()
+            .context(BadPath {
+                pth: full_path.clone(),
+            })?
+            .to_string(),
+    );
+    params.insert("rating".to_string(), format!("{}", rating));
+
+    Ok(Some(spawn(cmd, args, &params).await?))
 }
 
 // TODO(sp1ff): this interface needs to be re-factored
 /// Take the command message from our channel, apply it to the ratings for the given song,
 /// and optionally run a command on the server (presumably to keep the track's ID3 tags
 /// up-to-date).
-pub async fn handle_rating(
+pub async fn handle_rating<I: Iterator<Item = String>>(
     msg: &str,
     client: &mut Client,
     rating_sticker: &str,
     ratings_cmd: &str,
-    ratings_cmd_args: &Vec<String>,
-    music_dir: &PathBuf,
-    current_file: &std::path::PathBuf,
-) -> Result<Option<crate::PinnedCmdFut>> {
+    ratings_cmd_args: &mut I,
+    music_dir: &str,
+    play_state: &PlayerStatus,
+) -> Result<Option<crate::commands::PinnedCmdFut>> {
     let req = RatingRequest::try_from(msg)?;
     let pathb = match req.track {
-        RatedTrack::Current => current_file.clone(),
+        RatedTrack::Current => match play_state {
+            PlayerStatus::Stopped => {
+                return Err(Error::PlayerStopped {});
+            }
+            PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => curr.file.clone(),
+        },
         RatedTrack::File(p) => p,
         RatedTrack::Relative(_i) => {
             return Err(Error::NotImplemented {
-                feature: String::from("Relative track position")});
+                feature: String::from("Relative track position"),
+            });
         }
     };
-    let pth = pathb.to_str().context(BadPath{ pth: pathb.clone() })?;
+    let pth: &str = pathb.to_str().context(BadPath { pth: pathb.clone() })?;
+
     debug!("Setting a rating of {} for `{}'.", req.rating, pth);
 
-    set_rating(client, rating_sticker, &pth, req.rating).await?;
-
-    // TODO(sp1ff): factor out command-related logic?
-    if ratings_cmd.len() == 0 {
-        return Ok(None);
-    }
-    let mut params = HashMap::<String, String>::new();
-
-    let mut full_path = PathBuf::from(music_dir);
-    full_path.push(pathb);
-
-    params.insert(
-        "full-file".to_string(),
-        full_path.to_str().context(BadPath { pth: full_path.clone() })?.to_string()
-    );
-    params.insert("rating".to_string(), format!("{}", req.rating));
-
-    let cmd = process_replacements(&ratings_cmd, &params)?;
-    // TODO(sp1ff): understand how to get this to work:
-    // let args: Result<Vec<_>> = ratings_cmd_args
-    let args: std::result::Result<Vec<_>, _> = ratings_cmd_args
-        .iter()
-        .map(|x| process_replacements(x, &params))
-        .collect();
-
-    match args {
-        Ok(a) => {
-            info!("Running 'rating' command: {} with args {:#?}", cmd, a);
-            Ok(Some(Box::pin(
-                tokio::process::Command::new(&cmd).args(a).output(),
-            )))
-        }
-        Err(err) => Err(Error::from(err)),
-    }
+    set_rating(
+        client,
+        rating_sticker,
+        pth,
+        req.rating,
+        ratings_cmd,
+        ratings_cmd_args,
+        music_dir,
+    )
+    .await
 }

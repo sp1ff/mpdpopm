@@ -35,14 +35,14 @@
 #![recursion_limit = "512"] // for the `select!' macro
 
 pub mod clients;
+pub mod commands;
 pub mod playcounts;
 pub mod ratings;
-pub mod replstrings;
 pub mod vars;
 
 use boolinator::Boolinator;
 use clients::{Client, IdleClient, IdleSubSystem, PlayerStatus};
-use playcounts::PlayState;
+use playcounts::{handle_setlp, handle_setpc, PlayState};
 use ratings::handle_rating;
 
 use futures::{
@@ -73,11 +73,12 @@ pub enum Error {
         back: Backtrace,
     },
     #[snafu(display("The path `{}' cannot be converted to a UTF-8 string", pth.display()))]
-    BadPath {
-        pth: PathBuf
-    },
-    #[snafu(display("We received messages for an unknown channel `{}'; this is likely a bug; please
-consider filing a report to sp1ff@pobox.com", chan))]
+    BadPath { pth: PathBuf },
+    #[snafu(display(
+        "We received messages for an unknown channel `{}'; this is likely a bug; please
+consider filing a report to sp1ff@pobox.com",
+        chan
+    ))]
     UnknownChannel {
         chan: String,
         #[snafu(backtrace(true))]
@@ -93,18 +94,22 @@ consider filing a report to sp1ff@pobox.com", chan))]
 
 // TODO(sp1ff): re-factor this into one place
 macro_rules! error_from {
-    ($t:ty) => (
+    ($t:ty) => {
         impl std::convert::From<$t> for Error {
             fn from(err: $t) -> Self {
-                Error::Other{ cause: Box::new(err), back: Backtrace::generate() }
+                Error::Other {
+                    cause: Box::new(err),
+                    back: Backtrace::generate(),
+                }
             }
         }
-    )
+    };
 }
 
-error_from!(replstrings::Error);
+error_from!(commands::Error);
 error_from!(clients::Error);
 error_from!(playcounts::Error);
+error_from!(ratings::Error);
 error_from!(std::num::ParseIntError);
 error_from!(std::time::SystemTimeError);
 
@@ -176,63 +181,93 @@ impl Config {
     }
 }
 
-async fn check_messages(client: &mut Client,
-                        idle_client: &mut IdleClient,
-                        state: &mut PlayState,
-                        command_chan: &str,
-                        rating_sticker: &str,
-                        ratings_cmd: &str,
-                        ratings_cmd_args: &Vec<String>,
-                        music_dir: &PathBuf,
-                        cmds: &mut FuturesUnordered<PinnedCmdFut>) -> Result<()> {
-
+// TODO(sp1ff): FuturesUnordered implements Extend; might be nice to write this interface in terms
+// of that.
+async fn check_messages<I1, I2>(
+    client: &mut Client,
+    idle_client: &mut IdleClient,
+    state: &mut PlayState,
+    command_chan: &str,
+    rating_sticker: &str,
+    ratings_cmd: &str,
+    ratings_cmd_args: &mut I1,
+    playcount_sticker: &str,
+    playcount_cmd: &str,
+    playcount_cmd_args: &mut I2,
+    lastplayed_sticker: &str,
+    music_dir: &str,
+    cmds: &mut FuturesUnordered<PinnedCmdFut>,
+) -> Result<()>
+where
+    I1: Iterator<Item = String>,
+    I2: Iterator<Item = String>,
+{
     let m = idle_client.get_messages().await?;
     for (chan, msgs) in &m {
         // Only supporting a single channel, ATM
-        (chan == command_chan).as_option().context(UnknownChannel{ chan: String::from(chan) })?;
+        (chan == command_chan).as_option().context(UnknownChannel {
+            chan: String::from(chan),
+        })?;
         for msg in msgs {
             if msg.starts_with("rate ") {
-                match state.last_status() {
-                    PlayerStatus::Stopped => {
-                        warn!("Player is stopped-- can't rate current track.");
-                    }
-                    PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => {
-                        for msg in msgs {
-                            match handle_rating(
-                                &msg[5..],
-                                client,
-                                &rating_sticker,
-                                &ratings_cmd,
-                                &ratings_cmd_args,
-                                &music_dir,
-                                &curr.file,
-                            )
-                                .await
-                            {
-                                Ok(opt) => match opt {
-                                    Some(fut) => cmds.push(fut),
-                                    None => {}
-                                },
-                                Err(err) => warn!("{:#?}", err),
-                            }
-                        }
-                    }
-                } // Close `match'
+                match handle_rating(
+                    &msg[5..],
+                    client,
+                    &rating_sticker,
+                    &ratings_cmd,
+                    ratings_cmd_args,
+                    &music_dir,
+                    &state.last_status(),
+                )
+                .await
+                {
+                    Ok(opt) => match opt {
+                        Some(fut) => cmds.push(fut),
+                        None => {}
+                    },
+                    Err(err) => warn!("{:#?}", err),
+                }
             } else if msg.starts_with("send ") {
                 match state.last_status() {
                     PlayerStatus::Stopped => {
-                        warn!("Player is stopped-- can't rate current track.");
+                        warn!("Player is stopped-- can't send the current track to a playlist.");
                     }
                     PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => {
-                        let file = curr.file;
-                        for msg in msgs {
-                            client.send_to_playlist(file.to_str().context(BadPath{ pth: file.clone() })?, &msg).await?;
-                        }
+                        client
+                            .send_to_playlist(
+                                curr.file.to_str().context(BadPath {
+                                    pth: curr.file.clone(),
+                                })?,
+                                &msg,
+                            )
+                            .await?;
                     }
                 }
+            } else if msg.starts_with("setpc ") {
+                match handle_setpc(
+                    &msg[6..],
+                    client,
+                    &playcount_sticker,
+                    &playcount_cmd,
+                    playcount_cmd_args,
+                    &music_dir,
+                    &state.last_status(),
+                )
+                .await
+                {
+                    Ok(opt) => match opt {
+                        Some(fut) => cmds.push(fut),
+                        None => {}
+                    },
+                    Err(err) => warn!("{:#?}", err),
+                }
+            } else if msg.starts_with("setlp ") {
+                handle_setlp(&msg[6..], client, &lastplayed_sticker, &state.last_status()).await?
             } else {
-                return Err(Error::UnknownCommand{ msg: String::from(msg),
-                                                  back: Backtrace::generate() });
+                return Err(Error::UnknownCommand {
+                    msg: String::from(msg),
+                    back: Backtrace::generate(),
+                });
             }
         }
     } // End `for'.
@@ -240,31 +275,29 @@ async fn check_messages(client: &mut Client,
     Ok(())
 }
 
-// TODO(sp1ff): ugh
 pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
     info!("mpdpopm {} beginning.", vars::VERSION);
 
+    let music_dir = cfg.local_music_dir.to_str().context(BadPath {
+        pth: cfg.local_music_dir.clone(),
+    })?;
+
     // TODO(sp1ff): Ugh
-    let host = cfg.host;
-    let port = cfg.port;
-    let music_dir = cfg.local_music_dir;
-    let rating_sticker = cfg.rating_sticker;
-    let ratings_cmd = cfg.ratings_command;
-    let ratings_cmd_args = cfg.ratings_command_args;
     let poll_interval_ms = cfg.poll_interval_ms;
-    let playcount_sticker = cfg.playcount_sticker;
-    let lastplayed_sticker = cfg.lastplayed_sticker;
-    let playcount_cmd = cfg.playcount_command;
-    let playcount_cmd_args = cfg.playcount_command_args;
 
     let mut hup = signal(SignalKind::hangup()).unwrap();
     let mut kill = signal(SignalKind::terminate()).unwrap();
 
-    let mut client = Client::connect(format!("{}:{}", host, port)).await?;
-    let mut state = PlayState::new(&mut client, &playcount_sticker, &lastplayed_sticker,
-                                   cfg.played_thresh).await?;
+    let mut client = Client::connect(format!("{}:{}", cfg.host, cfg.port)).await?;
+    let mut state = PlayState::new(
+        &mut client,
+        &cfg.playcount_sticker,
+        &cfg.lastplayed_sticker,
+        cfg.played_thresh,
+    )
+    .await?;
 
-    let mut idle_client = IdleClient::connect(format!("{}:{}", host, port)).await?;
+    let mut idle_client = IdleClient::connect(format!("{}:{}", cfg.host, cfg.port)).await?;
     idle_client.subscribe(&cfg.commands_chan).await?;
 
     let tick = delay_for(Duration::from_millis(poll_interval_ms)).fuse();
@@ -286,7 +319,6 @@ pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
             let mut idle = Box::pin(idle_client.idle().fuse()); // `idle_client' mutably borrowed here
             loop {
                 select! {
-                    // TODO(sp1ff): figure out why Ctrl-C handling breaks at some point
                     _ = ctrl_c => {
                         info!("got ctrl-C");
                         done = true;
@@ -316,17 +348,24 @@ pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
                     },
                     _ = tick => {
                         tick.set(delay_for(Duration::from_millis(poll_interval_ms)).fuse());
-                        state.update(&mut client, &playcount_cmd, &playcount_cmd_args, &music_dir,
-                                     &mut cmds).await?;
+                        if let Some(fut) = state.update(&mut client,
+                                                        &cfg.playcount_command,
+                                                        &mut cfg.playcount_command_args.iter().cloned(),
+                                                        music_dir).await? {
+                            cmds.push(fut);
+                        }
                     },
                     res = idle => {
                         match res {
                             Ok(subsys) => {
                                 debug!("subsystem {} changed", subsys);
                                 if subsys == IdleSubSystem::Player {
-                                    debug!("Updating status.");
-                                    state.update(&mut client, &playcount_cmd, &playcount_cmd_args,
-                                                 &music_dir, &mut cmds).await?;
+                                    if let Some(fut) = state.update(&mut client,
+                                                                    &cfg.playcount_command,
+                                                                    &mut cfg.playcount_command_args.iter().cloned(),
+                                                                    music_dir).await? {
+                                        cmds.push(fut);
+                                    }
                                 } else if subsys == IdleSubSystem::Message {
                                     msg_check_needed = true;
                                 }
@@ -343,10 +382,24 @@ pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
             }
         } // `idle_client' mutable borrowed dropped here, which is important...
 
+        // because it's mutably borrowed again here:
         if msg_check_needed {
-            check_messages(&mut client, &mut idle_client, &mut state, &cfg.commands_chan,
-                           &rating_sticker, &ratings_cmd, &ratings_cmd_args,
-                           &music_dir, &mut cmds).await?;
+            check_messages(
+                &mut client,
+                &mut idle_client,
+                &mut state,
+                &cfg.commands_chan,
+                &cfg.rating_sticker,
+                &cfg.ratings_command,
+                &mut cfg.ratings_command_args.iter().cloned(),
+                &cfg.playcount_sticker,
+                &cfg.playcount_command,
+                &mut cfg.playcount_command_args.iter().cloned(),
+                &cfg.lastplayed_sticker,
+                music_dir,
+                &mut cmds,
+            )
+            .await?;
         }
     } // End `while'.
 
