@@ -93,6 +93,7 @@ pub async fn get_play_count(
 }
 
 /// Set the play count for a track-- this will run the associated command, if any
+
 pub async fn set_play_count<I: Iterator<Item = String>>(
     client: &mut Client,
     sticker: &str,
@@ -283,75 +284,75 @@ impl PlayState {
     }
 }
 
-pub async fn handle_setpc<I: Iterator<Item = String>>(
-    msg: &str,
-    client: &mut Client,
-    sticker: &str,
-    cmd: &str,
-    args: &mut I,
-    music_dir: &str,
-    play_state: &PlayerStatus,
-) -> Result<Option<crate::PinnedCmdFut>> {
-    // should be "PLAYCOUNT( TRACK)?"
-    let text = msg.trim();
-    let (pc, track) = match text.find(char::is_whitespace) {
-        Some(idx) => (text[..idx].parse::<usize>()?, &text[idx + 1..]),
-        None => (text.parse::<usize>()?, ""),
-    };
+// pub async fn handle_setpc<I: Iterator<Item = String>>(
+//     msg: &str,
+//     client: &mut Client,
+//     sticker: &str,
+//     cmd: &str,
+//     args: &mut I,
+//     music_dir: &str,
+//     play_state: &PlayerStatus,
+// ) -> Result<Option<crate::PinnedCmdFut>> {
+//     // should be "PLAYCOUNT( TRACK)?"
+//     let text = msg.trim();
+//     let (pc, track) = match text.find(char::is_whitespace) {
+//         Some(idx) => (text[..idx].parse::<usize>()?, &text[idx + 1..]),
+//         None => (text.parse::<usize>()?, ""),
+//     };
 
-    let file = if track.is_empty() {
-        match play_state {
-            PlayerStatus::Stopped => {
-                return Err(Error::PlayerStopped {});
-            }
-            PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => curr
-                .file
-                .to_str()
-                .context(BadPath {
-                    pth: curr.file.clone(),
-                })?
-                .to_string(),
-        }
-    } else {
-        track.to_string()
-    };
+//     let file = if track.is_empty() {
+//         match play_state {
+//             PlayerStatus::Stopped => {
+//                 return Err(Error::PlayerStopped {});
+//             }
+//             PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => curr
+//                 .file
+//                 .to_str()
+//                 .context(BadPath {
+//                     pth: curr.file.clone(),
+//                 })?
+//                 .to_string(),
+//         }
+//     } else {
+//         track.to_string()
+//     };
 
-    if cmd.is_empty() {
-        return Ok(None);
-    }
+//     if cmd.is_empty() {
+//         return Ok(None);
+//     }
 
-    Ok(set_play_count(client, sticker, &file, pc, cmd, args, music_dir).await?)
-}
+//     Ok(set_play_count(client, sticker, &file, pc, cmd, args, music_dir).await?)
+// }
 
-pub async fn handle_setlp(
-    msg: &str,
-    client: &mut Client,
-    sticker: &str,
-    play_state: &PlayerStatus,
-) -> Result<()> {
-    // should be "LASTPLAYED ( TRACK)?"
-    let text = msg.trim();
-    let (lp, track) = match text.find(char::is_whitespace) {
-        Some(idx) => (text[..idx].parse::<u64>()?, &text[idx + 1..]),
-        None => (text.parse::<u64>()?, ""),
-    };
+// pub async fn handle_setlp(
+//     msg: &str,
+//     client: &mut Client,
+//     sticker: &str,
+//     play_state: &PlayerStatus,
+// ) -> Result<()> {
+//     // should be "LASTPLAYED ( TRACK)?"
+//     let text = msg.trim();
+//     let (lp, track) = match text.find(char::is_whitespace) {
+//         Some(idx) => (text[..idx].parse::<u64>()?, &text[idx + 1..]),
+//         None => (text.parse::<u64>()?, ""),
+//     };
 
-    let file = if track.is_empty() {
-        match play_state {
-            PlayerStatus::Stopped => {
-                return Err(Error::PlayerStopped {});
-            }
-            PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => curr
-                .file
-                .to_str()
-                .context(BadPath {
-                    pth: curr.file.clone(),
-                })?
-                .to_string(),
-        }
-    } else {
-        track.to_string()
-    };
+//     let file = if track.is_empty() {
+//         match play_state {
+//             PlayerStatus::Stopped => {
+//                 return Err(Error::PlayerStopped {});
+//             }
+//             PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => curr
+//                 .file
+//                 .to_str()
+//                 .context(BadPath {
+//                     pth: curr.file.clone(),
+//                 })?
+//                 .to_string(),
+//         }
+//     } else {
+//         track.to_string()
+//     };
 
-    Ok(set_last_played(client, sticker, &file, lp).await?)
-}
+//     Ok(set_last_played(client, sticker, &file, lp).await?)
+// }

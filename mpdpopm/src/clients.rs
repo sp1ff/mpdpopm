@@ -222,6 +222,15 @@ pub enum PlayerStatus {
     Stopped,
 }
 
+impl PlayerStatus {
+    pub fn current_song(&self) -> Option<&CurrentSong> {
+        match self {
+            PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => Some(curr),
+            PlayerStatus::Stopped => None,
+        }
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                           Connection                                           //
 ////////////////////////////////////////////////////////////////////////////////////////////////////

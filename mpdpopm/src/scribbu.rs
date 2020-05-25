@@ -1,0 +1,141 @@
+// Copyright (C) 2020 Michael Herstine <sp1ff@pobox.com>
+//
+// This file is part of mpdpopm.
+//
+// mpdpopm is free software: you can redistribute it and/or modify it under the terms of the GNU General
+// Public License as published by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// mpdpopm is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
+// implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+// Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with mpdpopm.  If not, see
+// <http://www.gnu.org/licenses/>.
+
+use crate::clients::{Client, PlayerStatus};
+use crate::commands::PinnedCmdFut;
+
+use log::debug;
+use snafu::{Backtrace, GenerateBacktrace, OptionExt, Snafu};
+use tokio::process::Command;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                       module Error type                                        //
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("Cannot apply a command to the current track when the player is stopped"))]
+    PlayerStopped,
+    #[snafu(display("Path contains non-UTF8 codepoints"))]
+    BadPath {
+        #[snafu(backtrace(true))]
+        back: Backtrace,
+    },
+    #[snafu(display("Mal-formed command `{}'", cmd))]
+    BadCommand {
+        cmd: String,
+        #[snafu(backtrace(true))]
+        back: Backtrace,
+    },
+}
+
+type Result<T> = std::result::Result<T, Error>;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// "setgenre WINAMP-GENRE( TRACK)?"
+#[cfg(feature = "scribbu")]
+pub fn set_genre(
+    msg: &str,
+    _client: &mut Client,
+    state: &PlayerStatus,
+    music_dir: &str,
+) -> Result<Option<PinnedCmdFut>> {
+    let args: Vec<_> = msg.split(char::is_whitespace).collect();
+    if args.len() < 1 {
+        return Err(Error::BadCommand {
+            cmd: msg.to_string(),
+            back: Backtrace::generate(),
+        });
+    }
+    let mut a: Vec<String> = vec!["-g".to_string(), args[0].to_string()];
+    a.push(format!(
+        "{}/{}",
+        music_dir,
+        if args.len() > 2 {
+            args[2]
+        } else {
+            state
+                .current_song()
+                .context(PlayerStopped {})?
+                .file
+                .to_str()
+                .context(BadPath {})?
+        }
+    ));
+    if args.len() > 3 {
+        return Err(Error::BadCommand {
+            cmd: msg.to_string(),
+            back: Backtrace::generate(),
+        });
+    }
+
+    Ok(Some(Box::pin(Command::new("set-genre").args(a).output())))
+}
+
+/// "getxtag COOKIE( TRACK)?
+#[cfg(feature = "scribbu")]
+pub fn get_xtag(
+    _msg: &str,
+    _client: &mut Client,
+    _state: &PlayerStatus,
+) -> Result<Option<PinnedCmdFut>> {
+    // TODO(sp1ff): write me!
+    Ok(None)
+}
+
+/// "setxtag URL-ENCODED-TAG-CLOUD( MERGE( TRACK)?)?
+#[cfg(feature = "scribbu")]
+pub fn set_xtag(
+    msg: &str,
+    _client: &mut Client,
+    state: &PlayerStatus,
+    music_dir: &str,
+) -> Result<Option<PinnedCmdFut>> {
+    let args: Vec<_> = msg.split(char::is_whitespace).collect();
+    let mut a: Vec<String> = vec!["xtag".to_string()];
+    if args.len() > 1 {
+        match args[1] {
+            "no" | "0" | "false" => a.push(String::from("-a")),
+            _ => a.push(String::from("-m")),
+        }
+    }
+    a.push(String::from("-T"));
+    a.push(String::from(args[0]));
+    a.push(format!(
+        "{}/{}",
+        music_dir,
+        if args.len() > 2 {
+            args[2]
+        } else {
+            state
+                .current_song()
+                .context(PlayerStopped {})?
+                .file
+                .to_str()
+                .context(BadPath {})?
+        }
+    ));
+    if args.len() > 3 {
+        return Err(Error::BadCommand {
+            cmd: msg.to_string(),
+            back: Backtrace::generate(),
+        });
+    }
+
+    debug!("scribbu xtags args: {:#?}", a);
+
+    Ok(Some(Box::pin(Command::new("scribbu").args(a).output())))
+}

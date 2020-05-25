@@ -39,14 +39,12 @@
 //! the track may contain whitespace). If omitted, the rating is taken to apply to the current
 //! track.
 
-use crate::clients::{Client, PlayerStatus};
+use crate::clients::Client;
 use crate::commands::spawn;
 
-use log::debug;
 use snafu::{Backtrace, GenerateBacktrace, OptionExt, ResultExt, Snafu};
 
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::path::PathBuf;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -184,6 +182,7 @@ impl std::convert::TryFrom<&str> for RatingRequest {
 mod rating_request_tests {
 
     use super::*;
+    use std::convert::TryFrom;
 
     /// RatingRequest smoke tests
     #[test]
@@ -220,7 +219,7 @@ pub async fn set_rating<I: Iterator<Item = String>>(
     file: &str,
     rating: u8,
     cmd: &str,
-    args: &mut I,
+    args: I,
     music_dir: &str,
 ) -> Result<Option<crate::commands::PinnedCmdFut>> {
     client
@@ -249,45 +248,45 @@ pub async fn set_rating<I: Iterator<Item = String>>(
 }
 
 // TODO(sp1ff): this interface needs to be re-factored
-/// Take the command message from our channel, apply it to the ratings for the given song,
-/// and optionally run a command on the server (presumably to keep the track's ID3 tags
-/// up-to-date).
-pub async fn handle_rating<I: Iterator<Item = String>>(
-    msg: &str,
-    client: &mut Client,
-    rating_sticker: &str,
-    ratings_cmd: &str,
-    ratings_cmd_args: &mut I,
-    music_dir: &str,
-    play_state: &PlayerStatus,
-) -> Result<Option<crate::commands::PinnedCmdFut>> {
-    let req = RatingRequest::try_from(msg)?;
-    let pathb = match req.track {
-        RatedTrack::Current => match play_state {
-            PlayerStatus::Stopped => {
-                return Err(Error::PlayerStopped {});
-            }
-            PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => curr.file.clone(),
-        },
-        RatedTrack::File(p) => p,
-        RatedTrack::Relative(_i) => {
-            return Err(Error::NotImplemented {
-                feature: String::from("Relative track position"),
-            });
-        }
-    };
-    let pth: &str = pathb.to_str().context(BadPath { pth: pathb.clone() })?;
+// Take the command message from our channel, apply it to the ratings for the given song,
+// and optionally run a command on the server (presumably to keep the track's ID3 tags
+// up-to-date).
+// pub async fn handle_rating<I: Iterator<Item = String>>(
+//     msg: &str,
+//     client: &mut Client,
+//     rating_sticker: &str,
+//     ratings_cmd: &str,
+//     ratings_cmd_args: &mut I,
+//     music_dir: &str,
+//     play_state: &PlayerStatus,
+// ) -> Result<Option<crate::commands::PinnedCmdFut>> {
+//     let req = RatingRequest::try_from(msg)?;
+//     let pathb = match req.track {
+//         RatedTrack::Current => match play_state {
+//             PlayerStatus::Stopped => {
+//                 return Err(Error::PlayerStopped {});
+//             }
+//             PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => curr.file.clone(),
+//         },
+//         RatedTrack::File(p) => p,
+//         RatedTrack::Relative(_i) => {
+//             return Err(Error::NotImplemented {
+//                 feature: String::from("Relative track position"),
+//             });
+//         }
+//     };
+//     let pth: &str = pathb.to_str().context(BadPath { pth: pathb.clone() })?;
 
-    debug!("Setting a rating of {} for `{}'.", req.rating, pth);
+//     debug!("Setting a rating of {} for `{}'.", req.rating, pth);
 
-    set_rating(
-        client,
-        rating_sticker,
-        pth,
-        req.rating,
-        ratings_cmd,
-        ratings_cmd_args,
-        music_dir,
-    )
-    .await
-}
+//     set_rating(
+//         client,
+//         rating_sticker,
+//         pth,
+//         req.rating,
+//         ratings_cmd,
+//         ratings_cmd_args,
+//         music_dir,
+//     )
+//     .await
+// }

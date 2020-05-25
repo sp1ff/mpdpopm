@@ -1,3 +1,9 @@
+2020-05-25  Michael Herstine  <sp1ff@pobox.com>
+
+	Added two new sub-commands & corresponding server-side implementations:
+	    1. set-genre
+	    2. set-xtag
+
 2020-05-20  Michael Herstine  <sp1ff@pobox.com>
 
 	Another massive re-factor.

@@ -9,6 +9,12 @@ cargo_verbose_ = $(cargo_verbose_$(AM_DEFAULT_VERBOSITY))
 cargo_verbose_0 =
 cargo_verbose_1 = --verbose
 
+if FEATURE_SCRIBBU
+    CARGO_FEATURE_ARGS = --features "scribbu"
+else
+    CARGO_FEATURE_ARGS =
+endif
+
 EXTRA_DIST = Cargo.lock
 bin_PROGRAMS = mppopmd mppopm
 
@@ -25,7 +31,7 @@ src/vars.rs: src/vars.rs.am
 
 CLEANFILES = src/vars.rs
 
-common_sources = vars.rs commands.rs clients.rs ratings.rs playcounts.rs lib.rs
+common_sources = vars.rs commands.rs clients.rs ratings.rs playcounts.rs lib.rs scribbu.rs
 
 mppopmd_SOURCES = Cargo.toml $(common_sources:%=src/%) src/bin/mppopmd.rs
 
@@ -33,11 +39,11 @@ mppopm_SOURCES = Cargo.toml $(common_sources:%=src/%) src/bin/mppopm.rs
 
 mppopmd$(EXEEXT): $(mppopmd_SOURCES)
 	cd $(top_srcdir)/mpdpopm && \
-	CARGO_TARGET_DIR=@abs_top_builddir@/mpdpopm/target cargo build $(CARGO_VERBOSE) $(CARGO_RELEASE_ARGS)
+	CARGO_TARGET_DIR=@abs_top_builddir@/mpdpopm/target cargo build $(CARGO_VERBOSE) $(CARGO_RELEASE_ARGS) $(CARGO_FEATURE_ARGS)
 
 mppopm$(EXEEXT): $(mppopm_SOURCES)
 	cd $(top_srcdir)/mpdpopm && \
-	CARGO_TARGET_DIR=@abs_top_builddir@/mpdpopm/target cargo build $(CARGO_VERBOSE) $(CARGO_RELEASE_ARGS)
+	CARGO_TARGET_DIR=@abs_top_builddir@/mpdpopm/target cargo build $(CARGO_VERBOSE) $(CARGO_RELEASE_ARGS) $(CARGO_FEATURE_ARGS)
 
 clean-local:
 	cd $(top_srcdir)/mpdpopm && \
@@ -45,7 +51,7 @@ clean-local:
 
 check-local:
 	cd $(top_srcdir)/mpdpopm && \
-	CARGO_TARGET_DIR=@abs_top_builddir@/mpdpopm/target cargo test
+	CARGO_TARGET_DIR=@abs_top_builddir@/mpdpopm/target cargo test $(CARGO_VERBOSE) $(CARGO_RELEASE_ARGS) $(CARGO_FEATURE_ARGS)
 
 install-exec-local: mppopmd$(EXEEXT) mppopm$(EXEEXT)
 	install -d $(DESTDIR)$(bindir)

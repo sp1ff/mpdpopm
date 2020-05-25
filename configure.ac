@@ -1,4 +1,4 @@
-AC_INIT([mpdpopm], [0.1.5], [sp1ff@pobox.com])
+AC_INIT([mpdpopm], [0.1.6], [sp1ff@pobox.com])
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_SRCDIR([mpdpopm/Cargo.toml.in])
 AM_INIT_AUTOMAKE([-Wall -Werror -Wno-portability -Wno-override gnits std-options dist-bzip2 dist-xz])
@@ -23,11 +23,32 @@ dnl adding a rule to Automake to build vars.rs from vars.rs.am at make-time.
 AC_CONFIG_FILES([mpdpopm/src/vars.rs.am])
 AC_CONFIG_FILES([Makefile mpdpopm/Makefile mpdpopm/Cargo.toml])
 
+dnl If the user says nothing, check for `scribbu' & use it if we find it. If the user explicitly
+dnl asks for it, check and error out if it's not found. If the user explicitly disables it,
+dnl respect their choice. This is the first scenario decribed at
+dnl <https://www.gnu.org/software/autoconf/manual/autoconf-2.66/html_node/External-Software.html#External-Software>
+AC_ARG_WITH(
+    scribbu,
+    AS_HELP_STRING([--with-scribbu],
+                   [Support additional commands that depend upon scribbu.]),
+    [],
+    [with_scribbu=check])
+
+feature_scribbu=
+AS_IF([test "x$with_scribbu" != xno],
+      [AC_CHECK_PROG([feature_scribbu],
+                     [scribbu],
+		     [yes])])
+
+if test "x$with_scribbu" == xyes -a -z "$feature_scribbu"; then
+    AC_MSG_FAILURE([--with-scribbu was given, but test for scribbu failed])
+fi
+
 dnl Specify --enable-debug to make a development release.  By default,
 dnl we build in public release mode.
 AC_ARG_ENABLE(
     debug,
-    AC_HELP_STRING([--enable-debug],
+    AS_HELP_STRING([--enable-debug],
                    [Build Rust code with debugging information [default=no]]),
     [rust_debug=$enableval],
     [rust_debug=no])
@@ -41,6 +62,7 @@ else
     RUST_TARGET_SUBDIR=release
 fi
 AM_CONDITIONAL([RUST_DEBUG], [test "x$rust_debug" = "xyes"])
+AM_CONDITIONAL([FEATURE_SCRIBBU], [test "x$feature_scribbu" = "xyes"])
 
 AC_SUBST([RUST_TARGET_SUBDIR])
 AC_SUBST(PACKAGE_AUTHOR, 'Michael Herstine <sp1ff@pobox.com>')

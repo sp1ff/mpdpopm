@@ -67,22 +67,22 @@ pub enum Error {
     #[snafu(display("No sub-command specified; try `mppopm --help'"))]
     NoSubCommand,
     #[snafu(display(
-        "The config argument couldn't be retrieved. This is likely a bug; please \
+        "The `config' argument couldn't be retrieved. This is likely a bug; please \
 consider filing a report with sp1ff@pobox.com"
     ))]
     NoConfigArg,
     #[snafu(display(
-        "The rating argument couldn't be retrieved. This is likely a bug; please \
+        "The `rating' argument couldn't be retrieved. This is likely a bug; please \
 consider filing a report with sp1ff@pobox.com"
     ))]
     NoRating,
     #[snafu(display(
-        "The playcount argument couldn't be retrieved. This is likely a bug; please \
+        "The `playcount' argument couldn't be retrieved. This is likely a bug; please \
 consider filing a report with sp1ff@pobox.com"
     ))]
     NoPlayCount,
     #[snafu(display(
-        "The last-played argument couldn't be retrieved. This is likely a bug; please \
+        "The `last-played' argument couldn't be retrieved. This is likely a bug; please \
 consider filing a report with sp1ff@pobox.com"
     ))]
     NoLastPlayed,
@@ -104,6 +104,18 @@ consider filing a report with sp1ff@pobox.com"
         #[snafu(backtrace(true))]
         back: Backtrace,
     },
+    #[cfg(feature = "scribbu")]
+    #[snafu(display(
+        "The `xtag' argument couldn't be retrieved. This is likely a bug; please \
+consider filing a report with sp1ff@pobox.com"
+    ))]
+    NoXtag,
+    #[cfg(feature = "scribbu")]
+    #[snafu(display(
+        "The `genre' argument couldn't be retrieved. This is likely a bug; please \
+consider filing a report with sp1ff@pobox.com"
+    ))]
+    NoGenre,
 }
 
 impl fmt::Debug for Error {
@@ -278,8 +290,8 @@ async fn set_rating(
     arg: Option<&str>,
 ) -> Result<()> {
     let cmd = match arg {
-        Some(uri) => format!("rate \\\"{}\\\" \\\"{}\\\"", rating, uri),
-        None => format!("rate \\\"{}\\\"", rating),
+        Some(uri) => format!("rate {} \\\"{}\\\"", rating, uri),
+        None => format!("rate {}", rating),
     };
     client.send_message(chan, &cmd).await?;
 
@@ -328,7 +340,7 @@ async fn set_play_counts(
 ) -> Result<()> {
     let cmd = match arg {
         // TODO(sp1ff): implement the `setpc' command!
-        Some(uri) => format!("setpc {} \"{}\"", playcount, uri),
+        Some(uri) => format!("setpc {} \\\"{}\\\"", playcount, uri),
         None => format!("setpc {}", playcount),
     };
     client.send_message(chan, &cmd).await?;
@@ -390,8 +402,7 @@ async fn set_last_playeds(
     arg: Option<&str>,
 ) -> Result<()> {
     let cmd = match arg {
-        // TODO(sp1ff): implement the `setlp' command
-        Some(uri) => format!("setlp {} \"{}\"", lastplayed, uri),
+        Some(uri) => format!("setlp {} {}", lastplayed, uri),
         None => format!("setlp {}", lastplayed),
     };
     client.send_message(chan, &cmd).await?;
@@ -407,6 +418,209 @@ async fn set_last_playeds(
     Ok(())
 }
 
+/// Set the xtag frame
+#[cfg(feature = "scribbu")]
+async fn set_xtag(client: &mut Client, chan: &str, xtag: &str, args: Vec<&str>) -> Result<()> {
+    let mut cmd = format!("setxtag {}", xtag);
+    args.iter().for_each(|x| {
+        if x.contains(char::is_whitespace) {
+            cmd.push_str(&format!(" \\\"{}\\\"", x));
+        } else {
+            cmd.push_str(&format!(" {}", x));
+        }
+    });
+    client.send_message(chan, &cmd).await?;
+    info!("xtag set/updated");
+    Ok(())
+}
+
+/// Set the genre
+#[cfg(feature = "scribbu")]
+async fn set_genre(client: &mut Client, chan: &str, genre: u8, track: Option<&str>) -> Result<()> {
+    let cmd = match track {
+        Some(uri) => format!("setgenre {} \\\"{}\\\"", genre, uri),
+        None => format!("setgenre {}", genre),
+    };
+    client.send_message(chan, &cmd).await?;
+    match track {
+        Some(uri) => info!("Set the genre to {} for \"{}\".", genre, uri),
+        None => info!("Set the genre for the current track to {}.", genre),
+    }
+    Ok(())
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+fn add_general_subcommands(app: App) -> App {
+    app.subcommand(
+        App::new("get-rating")
+            .about("retrieve the rating for one or more tracks")
+            .long_about(
+                "
+With no arguments, retrieve the rating of the current song & print it
+on stdout. With one argument, retrieve that track's rating & print it
+on stdout. With multiple arguments, print their ratings on stdout, one
+per line, prefixed by the track name.",
+            )
+            .arg(
+                Arg::with_name("with-uri")
+                    .short('u')
+                    .long("with-uri")
+                    .about("Always show the song URI, even when there is only one"),
+            )
+            .arg(Arg::with_name("track").multiple(true)),
+    )
+    .subcommand(
+        App::new("set-rating")
+            .about("set the rating for one track")
+            .long_about(
+                "
+With no arguments, set the rating of the current song. With a single
+argument, rate that song.",
+            )
+            .arg(Arg::with_name("rating").index(1).required(true))
+            .arg(Arg::with_name("track").index(2)),
+    )
+    .subcommand(
+        App::new("get-pc")
+            .about("retrieve the play count for one or more tracks")
+            .long_about(
+                "
+With no arguments, retrieve the play count of the current song & print it
+on stdout. With one argument, retrieve that track's play count & print it
+on stdout. With multiple arguments, print their play counts on stdout, one
+per line, prefixed by the track name.",
+            )
+            .arg(
+                Arg::with_name("with-uri")
+                    .short('u')
+                    .long("with-uri")
+                    .about("Always show the song URI, even when there is only one"),
+            )
+            .arg(Arg::with_name("track").multiple(true)),
+    )
+    .subcommand(
+        App::new("set-pc")
+            .about("set the play count for one track")
+            .long_about(
+                "
+With no arguments, set the play count of the current song. With a single
+argument, set the play count for that song.",
+            )
+            .arg(Arg::with_name("play-count").index(1).required(true))
+            .arg(Arg::with_name("track").index(2)),
+    )
+    .subcommand(
+        App::new("get-lp")
+            .about("retrieve the last played timestamp for one or more tracks")
+            .long_about(
+                "
+With no arguments, retrieve the last played timestamp of the current
+song & print it on stdout. With one argument, retrieve that track's
+last played time & print it on stdout. With multiple arguments, print
+their last played times on stdout, one per line, prefixed by the track
+name.",
+            )
+            .arg(
+                Arg::with_name("with-uri")
+                    .short('u')
+                    .long("with-uri")
+                    .about("Always show the song URI, even when there is only one"),
+            )
+            .arg(Arg::with_name("track").multiple(true)),
+    )
+    .subcommand(
+        App::new("set-lp")
+            .about("set the last played timestamp for one track")
+            .long_about(
+                "
+With no arguments, set the last played time of the current song. With a single
+argument, set the last played time for that song.",
+            )
+            .arg(Arg::with_name("last-played").index(1).required(true))
+            .arg(Arg::with_name("track").index(2)),
+    )
+}
+
+#[cfg(feature = "scribbu")]
+fn add_scribbu_subcommands(app: App) -> App {
+    app.subcommand(
+        App::new("set-xtag")
+            .about("Set the XTAG ID3v2 for one track")
+            .long_about(
+                "
+Set the experimental tag-cloud frame.
+",
+            )
+            .arg(
+                Arg::with_name("merge")
+                    .short('m')
+                    .long("merge")
+                    .about("Merge the given tags with the extant cloud, if any"),
+            )
+            .arg(Arg::with_name("xtag").index(1).required(true))
+            .arg(Arg::with_name("track").index(2)),
+    )
+    .subcommand(
+        App::new("set-genre")
+            .about("Set the genre in terms of the old Winamp genre list")
+            .arg(Arg::with_name("genre").index(1).required(true))
+            .arg(Arg::with_name("track").index(2)),
+    )
+}
+
+#[cfg(not(feature = "scribbu"))]
+fn add_scribbu_subcommands(app: App) -> App {
+    app
+}
+
+#[cfg(feature = "scribbu")]
+async fn try_scribbu_subcommands(
+    matches: clap::ArgMatches,
+    client: &mut Client,
+    cfg: Config,
+) -> Result<bool> {
+    if let Some(subm) = matches.subcommand_matches("set-xtag") {
+        let mut args = vec![if subm.is_present("merge") {
+            "true"
+        } else {
+            "false"
+        }];
+        match subm.value_of("track") {
+            Some(track) => args.push(track),
+            None => (),
+        }
+        set_xtag(
+            client,
+            &cfg.commands_chan,
+            subm.value_of("xtag").context(NoXtag {})?,
+            args,
+        )
+        .await?;
+        return Ok(true);
+    } else if let Some(subm) = matches.subcommand_matches("set-genre") {
+        set_genre(
+            client,
+            &cfg.commands_chan,
+            subm.value_of("genre").context(NoGenre {})?.parse::<u8>()?,
+            subm.value_of("track"),
+        )
+        .await?;
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
+#[cfg(not(feature = "scribbu"))]
+fn try_scribbu_subcommands(
+    _matches: ArgMatches,
+    _client: &mut Client,
+    _cfg: Config,
+) -> Result<bool> {
+    Ok(false)
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                         The Big Kahuna                                         //
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -415,7 +629,8 @@ async fn set_last_playeds(
 async fn main() -> Result<()> {
     use mpdpopm::vars::{AUTHOR, VERSION};
 
-    let matches = App::new("mppopm")
+    let def_cfg = format!("{}/.mppopm", std::env::var("HOME")?);
+    let mut app = App::new("mppopm")
         .version(VERSION)
         .author(AUTHOR)
         .about("`mppopmd' client")
@@ -436,98 +651,14 @@ async fn main() -> Result<()> {
                 .short('c')
                 .takes_value(true)
                 .value_name("FILE")
-                .default_value(&format!("{}/.mppopm", std::env::var("HOME")?))
+                // .default_value(&format!("{}/.mppopm", std::env::var("HOME")?))
+                .default_value(&def_cfg)
                 .about("path to configuration file"),
-        )
-        .subcommand(
-            App::new("get-rating")
-                .about("retrieve the rating for one or more tracks")
-                .long_about(
-                    "
-With no arguments, retrieve the rating of the current song & print it
-on stdout. With one argument, retrieve that track's rating & print it
-on stdout. With multiple arguments, print their ratings on stdout, one
-per line, prefixed by the track name.",
-                )
-                .arg(
-                    Arg::with_name("with-uri")
-                        .short('u')
-                        .long("with-uri")
-                        .about("Always show the song URI, even when there is only one"),
-                )
-                .arg(Arg::with_name("track").multiple(true)),
-        )
-        .subcommand(
-            App::new("set-rating")
-                .about("set the rating for one track")
-                .long_about(
-                    "
-With no arguments, set the rating of the current song. With a single
-argument, rate that song.",
-                )
-                .arg(Arg::with_name("rating").index(1).required(true))
-                .arg(Arg::with_name("track").index(2)),
-        )
-        .subcommand(
-            App::new("get-pc")
-                .about("retrieve the play count for one or more tracks")
-                .long_about(
-                    "
-With no arguments, retrieve the play count of the current song & print it
-on stdout. With one argument, retrieve that track's play count & print it
-on stdout. With multiple arguments, print their play counts on stdout, one
-per line, prefixed by the track name.",
-                )
-                .arg(
-                    Arg::with_name("with-uri")
-                        .short('u')
-                        .long("with-uri")
-                        .about("Always show the song URI, even when there is only one"),
-                )
-                .arg(Arg::with_name("track").multiple(true)),
-        )
-        .subcommand(
-            App::new("set-pc")
-                .about("set the play count for one track")
-                .long_about(
-                    "
-With no arguments, set the play count of the current song. With a single
-argument, set the play count for that song.",
-                )
-                .arg(Arg::with_name("play-count").index(1).required(true))
-                .arg(Arg::with_name("track").index(2)),
-        )
-        .subcommand(
-            App::new("get-lp")
-                .about("retrieve the last played timestamp for one or more tracks")
-                .long_about(
-                    "
-With no arguments, retrieve the last played timestamp of the current
-song & print it on stdout. With one argument, retrieve that track's
-last played time & print it on stdout. With multiple arguments, print
-their last played times on stdout, one per line, prefixed by the track
-name.",
-                )
-                .arg(
-                    Arg::with_name("with-uri")
-                        .short('u')
-                        .long("with-uri")
-                        .about("Always show the song URI, even when there is only one"),
-                )
-                .arg(Arg::with_name("track").multiple(true)),
-        )
-        .subcommand(
-            App::new("set-lp")
-                .about("set the last played timestamp for one track")
-                .long_about(
-                    "
-With no arguments, set the last played time of the current song. With a single
-argument, set the last played time for that song.",
-                )
-                .arg(Arg::with_name("last-played").index(1).required(true))
-                .arg(Arg::with_name("track").index(2)),
-        )
-        .get_matches();
+        );
+    app = add_general_subcommands(app);
+    app = add_scribbu_subcommands(app);
+
+    let matches = app.get_matches();
 
     // Handling the configuration file is a little touchy; if the user simply accepted the default,
     // and it's not there, that's fine: we just proceed with a defualt configuration. But if they
@@ -633,5 +764,9 @@ argument, set the last played time for that song.",
         .await?);
     }
 
-    Err(Error::NoSubCommand {})
+    if !try_scribbu_subcommands(matches, &mut client, cfg).await? {
+        return Err(Error::NoSubCommand {});
+    }
+
+    Ok(())
 }
