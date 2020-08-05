@@ -7,3 +7,6 @@ configure
 *.bz2
 *.gz
 *.xz
+Makefile
+config.log
+config.status

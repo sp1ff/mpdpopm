@@ -2,16 +2,16 @@
 //
 // This file is part of mpdpopm.
 //
-// mpdpopm is free software: you can redistribute it and/or modify it under the terms of the GNU General
-// Public License as published by the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// mpdpopm is free software: you can redistribute it and/or modify it under the terms of the GNU
+// General Public License as published by the Free Software Foundation, either version 3 of the
+// License, or (at your option) any later version.
 //
-// mpdpopm is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
-// implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+// mpdpopm is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even
+// the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
 // Public License for more details.
 //
-// You should have received a copy of the GNU General Public License along with mpdpopm.  If not, see
-// <http://www.gnu.org/licenses/>.
+// You should have received a copy of the GNU General Public License along with mpdpopm.  If not,
+// see <http://www.gnu.org/licenses/>.
 
 //! # mpdpopm
 //!
@@ -32,12 +32,19 @@
 //!    - ratings: "rate RATING( TRACK)?"
 //!    - set playcount: "setpc PC( TRACK)?"
 //!    - set lastplayed: "setlp TIMEESTAMP( TRACK)?"
-//!    - send-to-playlist: "send TRACK PLAYLIST"
+//!    - send-to-playlist: "send PLAYLIST" (sends the current track only)
+//!
+//! If compiled with the 'scribbu' feature enabled:
+//!
+//!    - set XTAG: "setxtag XTAG MERGE( TRACK)?"
+//!    - set the genre: "setgenre WINAMP-GENRE-NUMBER( TRACK)?"
+//!
 
 #![recursion_limit = "512"] // for the `select!' macro
 
 pub mod clients;
 pub mod commands;
+pub mod error_from;
 pub mod playcounts;
 pub mod ratings;
 #[cfg(feature = "scribbu")]
@@ -46,8 +53,10 @@ pub mod vars;
 
 use boolinator::Boolinator;
 use clients::{Client, IdleClient, IdleSubSystem, PlayerStatus};
+use commands::TaggedCommandFuture;
 use playcounts::{set_last_played, set_play_count, PlayState};
 use ratings::{set_rating, RatedTrack, RatingRequest};
+use vars::{LOCALSTATEDIR, PREFIX};
 
 use futures::{
     future::FutureExt,
@@ -101,20 +110,6 @@ consider filing a report to sp1ff@pobox.com",
     NotImplemented { feature: String },
 }
 
-// TODO(sp1ff): re-factor this into one place
-macro_rules! error_from {
-    ($t:ty) => {
-        impl std::convert::From<$t> for Error {
-            fn from(err: $t) -> Self {
-                Error::Other {
-                    cause: Box::new(err),
-                    back: Backtrace::generate(),
-                }
-            }
-        }
-    };
-}
-
 error_from!(commands::Error);
 error_from!(clients::Error);
 error_from!(playcounts::Error);
@@ -127,18 +122,17 @@ error_from!(std::time::SystemTimeError);
 pub type Result<T> = std::result::Result<T, Error>;
 
 // TODO(sp1ff): move this to one location
-pub type PinnedCmdFut = std::pin::Pin<
-    Box<dyn futures::future::Future<Output = tokio::io::Result<std::process::Output>>>,
->;
+// pub type PinnedCmdFut = std::pin::Pin<
+//     Box<dyn futures::future::Future<Output = tokio::io::Result<std::process::Output>>>,
+// >;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// TODO(sp1ff): Implement reading this from file; how to setup defaults, again?
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(default)]
 pub struct Config {
     /// Location of log file
     pub log: PathBuf,
-    // TODO(sp1ff): I think we need to run this on the same host-- use socket only?
     /// Host on which `mpd' is listening
     host: String,
     /// TCP port on which `mpd' is listening
@@ -170,14 +164,13 @@ pub struct Config {
     ratings_command_args: Vec<String>,
 }
 
-impl Config {
-    pub fn new() -> Config {
-        // TODO(sp1ff): change these defaults to something more appropriate
+impl Default for Config {
+    fn default() -> Config {
         Config {
-            log: PathBuf::from("/tmp/mpdpopm.log"),
+            log: [LOCALSTATEDIR, "log", "mppopmd.log"].iter().collect(),
             host: String::from("localhost"),
-            port: 16600,
-            local_music_dir: PathBuf::from("/mnt/Took-Hall/mp3"),
+            port: 6600,
+            local_music_dir: [PREFIX, "Music"].iter().collect(),
             playcount_sticker: String::from("unwoundstack.com:playcount"),
             lastplayed_sticker: String::from("unwoundstack.com:lastplayed"),
             played_thresh: 0.6,
@@ -241,7 +234,7 @@ where
         msg: &str,
         client: &mut Client,
         state: &PlayerStatus,
-    ) -> Result<Option<PinnedCmdFut>> {
+    ) -> Result<Option<std::pin::Pin<std::boxed::Box<TaggedCommandFuture>>>> {
         if msg.starts_with("rate ") {
             self.rate(&msg[5..], client, state).await
         } else if msg.starts_with("send ") {
@@ -260,7 +253,7 @@ where
         msg: &str,
         client: &mut Client,
         state: &PlayerStatus,
-    ) -> Result<Option<PinnedCmdFut>> {
+    ) -> Result<Option<std::pin::Pin<std::boxed::Box<TaggedCommandFuture>>>> {
         let req = RatingRequest::try_from(msg)?;
         let pathb = match req.track {
             RatedTrack::Current => match state {
@@ -278,6 +271,7 @@ where
         };
         let path: &str = pathb.to_str().context(BadPath { pth: pathb.clone() })?;
         debug!("Setting a rating of {} for `{}'.", req.rating, path);
+
         Ok(set_rating(
             client,
             self.rating_sticker,
@@ -289,13 +283,13 @@ where
         )
         .await?)
     }
-    /// Handle send-to-playlist: "SEND( TRACK)?"
+    /// Handle send-to-playlist: "SEND PLAYLIST"
     async fn send(
         &self,
         msg: &str,
         client: &mut Client,
         state: &PlayerStatus,
-    ) -> Result<Option<PinnedCmdFut>> {
+    ) -> Result<Option<std::pin::Pin<std::boxed::Box<TaggedCommandFuture>>>> {
         match state {
             PlayerStatus::Stopped => {
                 warn!("Player is stopped-- can't send the current track to a playlist.");
@@ -320,7 +314,7 @@ where
         msg: &str,
         client: &mut Client,
         state: &PlayerStatus,
-    ) -> Result<Option<PinnedCmdFut>> {
+    ) -> Result<Option<std::pin::Pin<std::boxed::Box<TaggedCommandFuture>>>> {
         let text = msg.trim();
         let (pc, track) = match text.find(char::is_whitespace) {
             Some(idx) => (text[..idx].parse::<usize>()?, &text[idx + 1..]),
@@ -345,6 +339,7 @@ where
         if self.playcount_cmd.is_empty() {
             return Ok(None);
         }
+
         Ok(set_play_count(
             client,
             self.playcount_sticker,
@@ -362,7 +357,7 @@ where
         msg: &str,
         client: &mut Client,
         state: &PlayerStatus,
-    ) -> Result<Option<PinnedCmdFut>> {
+    ) -> Result<Option<std::pin::Pin<std::boxed::Box<TaggedCommandFuture>>>> {
         let text = msg.trim();
         let (lp, track) = match text.find(char::is_whitespace) {
             Some(idx) => (text[..idx].parse::<u64>()?, &text[idx + 1..]),
@@ -393,7 +388,7 @@ where
         msg: &str,
         client: &mut Client,
         state: &PlayerStatus,
-    ) -> Result<Option<PinnedCmdFut>> {
+    ) -> Result<Option<std::pin::Pin<std::boxed::Box<TaggedCommandFuture>>>> {
         use scribbu::{get_xtag, set_genre, set_xtag};
         if msg.starts_with("setgenre ") {
             Ok(set_genre(&msg[9..], client, state, self.music_dir)?)
@@ -402,10 +397,10 @@ where
         } else if msg.starts_with("setxtag ") {
             Ok(set_xtag(&msg[8..], client, state, self.music_dir)?)
         } else {
-            return Err(Error::UnknownCommand {
+            Err(Error::UnknownCommand {
                 msg: String::from(msg),
                 back: Backtrace::generate(),
-            });
+            })
         }
     }
     #[cfg(not(feature = "scribbu"))]
@@ -414,7 +409,7 @@ where
         msg: &str,
         _client: &mut Client,
         _state: &PlayerStatus,
-    ) -> Result<Option<PinnedCmdFut>> {
+    ) -> Result<Option<std::pin::Pin<std::boxed::Box<TaggedCommandFuture>>>> {
         log::error!(
             "Message `{}' received, but compiled without scribbu support; enable feature \
 \"scribbu\" to handle this message.",
@@ -435,7 +430,7 @@ async fn check_messages<'a, I1, I2, E>(
 where
     I1: Iterator<Item = String> + Clone,
     I2: Iterator<Item = String> + Clone,
-    E: Extend<PinnedCmdFut>,
+    E: Extend<std::pin::Pin<std::boxed::Box<TaggedCommandFuture>>>,
 {
     let m = idle_client.get_messages().await?;
     for (chan, msgs) in &m {
@@ -451,7 +446,6 @@ where
     Ok(())
 }
 
-// TODO(sp1ff): make this non-async/sync?
 /// Core `mppopmd' logic
 pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
     info!("mpdpopm {} beginning.", vars::VERSION);
@@ -483,8 +477,11 @@ pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
     let tick = delay_for(Duration::from_millis(cfg.poll_interval_ms)).fuse();
     pin_mut!(ctrl_c, sighup, sigkill, tick);
 
-    let mut cmds = FuturesUnordered::<PinnedCmdFut>::new();
-    cmds.push(Box::pin(tokio::process::Command::new("pwd").output()));
+    let mut cmds = FuturesUnordered::<std::pin::Pin<std::boxed::Box<TaggedCommandFuture>>>::new();
+    cmds.push(TaggedCommandFuture::pin(
+        Box::pin(tokio::process::Command::new("pwd").output()),
+        None,
+    ));
 
     let ctx = MessagesContext::new(
         &music_dir,
@@ -533,9 +530,15 @@ pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
                         }
                     },
                     next = cmds.next() => match next {
-                        Some(res) => {
-                            // TODO(sp1ff): implement me!
-                            debug!("output status is {:#?}", res);
+                        Some(out) => {
+                            debug!("output status is {:#?}", out.out);
+                            match out.upd {
+                                Some(uri) => {
+                                    debug!("{} needs to be updated", uri);
+                                    client.update(&uri).await?;
+                                },
+                                None => debug!("No database update needed"),
+                            }
                         },
                         None => {
                             debug!("No more commands to process.");

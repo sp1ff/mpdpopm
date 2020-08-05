@@ -31,7 +31,8 @@ src/vars.rs: src/vars.rs.am
 
 CLEANFILES = src/vars.rs
 
-common_sources = vars.rs commands.rs clients.rs ratings.rs playcounts.rs lib.rs scribbu.rs
+common_sources = vars.rs error_from.rs commands.rs clients.rs ratings.rs playcounts.rs lib.rs \
+	scribbu.rs
 
 mppopmd_SOURCES = Cargo.toml $(common_sources:%=src/%) src/bin/mppopmd.rs
 

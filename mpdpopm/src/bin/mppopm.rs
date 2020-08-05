@@ -2,16 +2,16 @@
 //
 // This file is part of mpdpopm.
 //
-// mpdpopm is free software: you can redistribute it and/or modify it under the terms of the GNU General
-// Public License as published by the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// mpdpopm is free software: you can redistribute it and/or modify it under the terms of the GNU
+// General Public License as published by the Free Software Foundation, either version 3 of the
+// License, or (at your option) any later version.
 //
-// mpdpopm is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
-// implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+// mpdpopm is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even
+// the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
 // Public License for more details.
 //
-// You should have received a copy of the GNU General Public License along with mpdpopm.  If not, see
-// <http://www.gnu.org/licenses/>.
+// You should have received a copy of the GNU General Public License along with mpdpopm.  If not,
+// see <http://www.gnu.org/licenses/>.
 
 //! # mppopm
 //!
@@ -28,6 +28,7 @@
 
 use mpdpopm::{
     clients::{Client, PlayerStatus},
+    error_from,
     playcounts::{get_last_played, get_play_count},
     ratings::get_rating,
 };
@@ -116,26 +117,17 @@ consider filing a report with sp1ff@pobox.com"
 consider filing a report with sp1ff@pobox.com"
     ))]
     NoGenre,
+    #[snafu(display(
+        "The `playlist' argument couldn't be retrieved. This is likely a bug; \
+please consider filing a report with sp1ff@pobox.com"
+    ))]
+    NoPlaylist,
 }
 
 impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self)
     }
-}
-
-// TODO(sp1ff): re-factor this into one place
-macro_rules! error_from {
-    ($t:ty) => {
-        impl std::convert::From<$t> for Error {
-            fn from(err: $t) -> Self {
-                Error::Other {
-                    cause: Box::new(err),
-                    back: Backtrace::generate(),
-                }
-            }
-        }
-    };
 }
 
 error_from!(log::SetLoggerError);
@@ -156,6 +148,7 @@ type Result<T> = std::result::Result<T, Error>;
 /// I'm using a separate configuration file for the client to support system-wide daemon installs
 /// (in /usr/local, say) along with per-user client configurations (~/.mppopm, e.g.).
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(default)]
 pub struct Config {
     // TODO(sp1ff): support Unix sockets, as well
     /// Host on which `mpd' is listening
@@ -173,12 +166,11 @@ pub struct Config {
     rating_sticker: String,
 }
 
-impl Config {
-    pub fn new() -> Config {
-        // TODO(sp1ff): change these defaults to something more appropriate
+impl Default for Config {
+    fn default() -> Config {
         Config {
-            host: String::from("localhost"),
-            port: 16600,
+            host: String::new(),
+            port: 0,
             playcount_sticker: String::from("unwoundstack.com:playcount"),
             lastplayed_sticker: String::from("unwoundstack.com:lastplayed"),
             commands_chan: String::from("unwoundstack.com:commands"),
@@ -222,36 +214,6 @@ async fn map_tracks<'a, Iter: Iterator<Item = &'a str>>(
         }
     };
     Ok(files)
-}
-
-/// Resolve a `track' argument to a String containing an mpd URI
-///
-/// Several sub-commands take zero or one positional arguments meant to name a track, with the
-/// convention that zero indicates that the sub-command should use the currently playing track.
-/// This is a convenience function for mapping the value returned by [`value_of`] to a
-/// convenient representation of the user's intentions.
-///
-/// [`value_of`]: [`clap::ArgMatches::value_of`]
-async fn _map_track(client: &mut Client, arg: Option<&str>) -> Result<String> {
-    let uri = match arg {
-        Some(uri) => uri.to_string(),
-        None => {
-            let file = match client.status().await? {
-                PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => curr
-                    .file
-                    .to_str()
-                    .context(BadPath {
-                        path: curr.file.clone(),
-                    })?
-                    .to_string(),
-                PlayerStatus::Stopped => {
-                    return Err(Error::PlayerStopped);
-                }
-            };
-            file
-        }
-    };
-    Ok(uri)
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -319,7 +281,6 @@ async fn get_play_counts<'a, Iter: Iterator<Item = &'a str>>(
         playcounts.push((file, playcount));
     }
 
-    // TODO(sp1ff): what if the PC isn't there?
     if playcounts.len() == 1 && !with_uri {
         println!("{}", playcounts[0].1);
     } else {
@@ -449,6 +410,24 @@ async fn set_genre(client: &mut Client, chan: &str, genre: u8, track: Option<&st
     Ok(())
 }
 
+/// Retrieve the list of stored playlists
+async fn get_playlists(client: &mut Client) -> Result<()> {
+    let mut pls = client.get_stored_playlists().await?;
+    pls.sort();
+    println!("Stored playlists:");
+    for pl in pls {
+        println!("{}", pl);
+    }
+    Ok(())
+}
+
+/// Send the current track to a stored playlist
+async fn send_current_to_playlist(client: &mut Client, chan: &str, pl: &str) -> Result<()> {
+    client.send_message(chan, &format!("send {}", pl)).await?;
+    info!("Sent the current track to playlist `{}'.", pl);
+    Ok(())
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 fn add_general_subcommands(app: App) -> App {
@@ -460,13 +439,16 @@ fn add_general_subcommands(app: App) -> App {
 With no arguments, retrieve the rating of the current song & print it
 on stdout. With one argument, retrieve that track's rating & print it
 on stdout. With multiple arguments, print their ratings on stdout, one
-per line, prefixed by the track name.",
+per line, prefixed by the track name.
+
+Ratings are expressed as an integer between 0 & 255, inclusive, with
+the convention that 0 denotes \"un-rated\".",
             )
             .arg(
                 Arg::with_name("with-uri")
                     .short('u')
                     .long("with-uri")
-                    .about("Always show the song URI, even when there is only one"),
+                    .about("Always show the song URI, even when there is only one track"),
             )
             .arg(Arg::with_name("track").multiple(true)),
     )
@@ -476,7 +458,16 @@ per line, prefixed by the track name.",
             .long_about(
                 "
 With no arguments, set the rating of the current song. With a single
-argument, rate that song.",
+argument, rate that song. Ratings may be expressed as either an
+integer between 0 & 255, inclusive, or as one to five \"stars\"
+(asterisks). Stars are mapped to integers per the Winamp convention:
+
+    *       1
+    **     64
+    ***   128
+    ****  196
+    ***** 255
+",
             )
             .arg(Arg::with_name("rating").index(1).required(true))
             .arg(Arg::with_name("track").index(2)),
@@ -519,7 +510,9 @@ With no arguments, retrieve the last played timestamp of the current
 song & print it on stdout. With one argument, retrieve that track's
 last played time & print it on stdout. With multiple arguments, print
 their last played times on stdout, one per line, prefixed by the track
-name.",
+name.
+
+The last played timestamp is expressed in seconds since Unix epoch.",
             )
             .arg(
                 Arg::with_name("with-uri")
@@ -535,21 +528,30 @@ name.",
             .long_about(
                 "
 With no arguments, set the last played time of the current song. With a single
-argument, set the last played time for that song.",
+argument, set the last played time for that song. The last played timestamp
+is expressed in seconds since Unix epoch.",
             )
             .arg(Arg::with_name("last-played").index(1).required(true))
             .arg(Arg::with_name("track").index(2)),
     )
+    .subcommand(App::new("get-playlists").about("retreive the list of stored palylists"))
 }
 
 #[cfg(feature = "scribbu")]
 fn add_scribbu_subcommands(app: App) -> App {
     app.subcommand(
         App::new("set-xtag")
-            .about("Set the XTAG ID3v2 for one track")
+            .about("Set the XTAG ID3v2 frame for one track")
             .long_about(
                 "
-Set the experimental tag-cloud frame.
+Set the experimental tag-cloud frame. The tag cloud is an experimental
+ID3v2 frame (with frame identifier \"XTAG\") introduced by `scribbu'.
+It is meant to represent a collection of arbitrary tags attached to
+the track, with or without values. On the command-line, this
+sub-command expresses it as urlencoded query parameters, e.g.:
+
+    mppopm set-xtag sub-genres=foo,bar&90s...
+
 ",
             )
             .arg(
@@ -563,9 +565,46 @@ Set the experimental tag-cloud frame.
     )
     .subcommand(
         App::new("set-genre")
-            .about("Set the genre in terms of the old Winamp genre list")
+            .about("Set the genre of one or more tracks")
+            .long_about(
+                "
+With one argument, set the genre of the currenly playing track to that
+argument (on which more below). With two, set the genre on the second
+track, expressed as an MPD song URI (i.e. the path relative to the MPD
+library root to the track, perhaps enclosed in double quotes).
+
+The genre given as an argument to this sub-command will be mapped to
+one of the textual names in the 192-member list of genres defined by
+Winamp by minimum Damerau-Levenshtein distance without regard to case.
+
+If the given song has no ID3v2 tag, one will be created (with a TCON
+frame set to the genre found above). If there is an ID3v1 tag, its
+genre byte will be set to the numeric value corresponding to the genre
+found above. If there is no ID3v1 tag, but there is an ID3v2 tag, and
+ID3v1 tag will be created.
+",
+            )
             .arg(Arg::with_name("genre").index(1).required(true))
             .arg(Arg::with_name("track").index(2)),
+    )
+    .subcommand(
+        App::new("send-to-playlist")
+            .about("Send the current track to a stored playlist")
+            .long_about(
+                "
+Send the currently playing track to the given stored playlist,
+creating it if it doesn't exist.
+
+As implemented, this command is very crude. It would be nice to:
+
+    - allow you to send multiple tracks by URI to a playlist
+    - allow you to send the track to multiple playlists
+    - when running interactive, provide auto-complete, so as to
+      avoid inadvertently creating new playlists due to typos.
+
+",
+            )
+            .arg(Arg::with_name("playlist").index(1).required(true)),
     )
 }
 
@@ -613,8 +652,8 @@ async fn try_scribbu_subcommands(
 }
 
 #[cfg(not(feature = "scribbu"))]
-fn try_scribbu_subcommands(
-    _matches: ArgMatches,
+async fn try_scribbu_subcommands(
+    _matches: clap::ArgMatches,
     _client: &mut Client,
     _cfg: Config,
 ) -> Result<bool> {
@@ -651,10 +690,24 @@ async fn main() -> Result<()> {
                 .short('c')
                 .takes_value(true)
                 .value_name("FILE")
-                // .default_value(&format!("{}/.mppopm", std::env::var("HOME")?))
                 .default_value(&def_cfg)
                 .about("path to configuration file"),
+        )
+        .arg(
+            Arg::with_name("host")
+                .short('H')
+                .takes_value(true)
+                .value_name("HOST")
+                .about("MPD host"),
+        )
+        .arg(
+            Arg::with_name("port")
+                .short('p')
+                .takes_value(true)
+                .value_name("PORT")
+                .about("MPD port"),
         );
+
     app = add_general_subcommands(app);
     app = add_scribbu_subcommands(app);
 
@@ -665,7 +718,7 @@ async fn main() -> Result<()> {
     // explicitly named a configuration file, and it's not there, they presumably want to know
     // about that.
     let cfgpth = matches.value_of("config").context(NoConfigArg {})?;
-    let cfg = match std::fs::read_to_string(cfgpth) {
+    let mut cfg = match std::fs::read_to_string(cfgpth) {
         // The config file (defaulted or not) existed & we were able to read its contents-- parse
         // em!
         Ok(text) => serde_lexpr::from_str(&text)?,
@@ -675,7 +728,7 @@ async fn main() -> Result<()> {
             (std::io::ErrorKind::NotFound, 0) => {
                 // The user just accepted the default option value & that default didn't exist; we
                 // proceed with default configuration settings.
-                Config::new()
+                Config::default()
             }
             (_, _) => {
                 // Either they did _not_, in which case they probably want to know that the config
@@ -688,6 +741,40 @@ async fn main() -> Result<()> {
             }
         },
     };
+
+    // The order of precedence for host & port is:
+
+    //     1. command-line arguments
+    //     2. configuration
+    //     3. environment variable
+
+    match matches.value_of("host") {
+        Some(host) => {
+            cfg.host = String::from(host);
+        }
+        None => {
+            if cfg.host.is_empty() {
+                cfg.host = match std::env::var("MPD_HOST") {
+                    Ok(host) => String::from(host),
+                    Err(_) => String::from("localhost"),
+                }
+            }
+        }
+    }
+
+    match matches.value_of("port") {
+        Some(port) => {
+            cfg.port = port.parse::<u16>()?;
+        }
+        None => {
+            if cfg.port == 0 {
+                cfg.port = match std::env::var("MPD_PORT") {
+                    Ok(port) => port.parse::<u16>()?,
+                    Err(_) => 6600,
+                }
+            }
+        }
+    }
 
     let lf = match (matches.is_present("verbose"), matches.is_present("debug")) {
         (_, true) => LevelFilter::Trace,
@@ -760,6 +847,15 @@ async fn main() -> Result<()> {
                 .context(NoLastPlayed {})?
                 .parse::<u64>()?,
             subm.value_of("track"),
+        )
+        .await?);
+    } else if let Some(_subm) = matches.subcommand_matches("get-playlists") {
+        return Ok(get_playlists(&mut client).await?);
+    } else if let Some(subm) = matches.subcommand_matches("send-to-playlist") {
+        return Ok(send_current_to_playlist(
+            &mut client,
+            &cfg.commands_chan,
+            subm.value_of("playlist").context(NoPlaylist {})?,
         )
         .await?);
     }

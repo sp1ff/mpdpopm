@@ -2,16 +2,16 @@
 //
 // This file is part of mpdpopm.
 //
-// mpdpopm is free software: you can redistribute it and/or modify it under the terms of the GNU General
-// Public License as published by the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// mpdpopm is free software: you can redistribute it and/or modify it under the terms of the GNU
+// General Public License as published by the Free Software Foundation, either version 3 of the
+// License, or (at your option) any later version.
 //
-// mpdpopm is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
-// implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+// mpdpopm is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even
+// the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
 // Public License for more details.
 //
-// You should have received a copy of the GNU General Public License along with mpdpopm.  If not, see
-// <http://www.gnu.org/licenses/>.
+// You should have received a copy of the GNU General Public License along with mpdpopm.  If not,
+// see <http://www.gnu.org/licenses/>.
 
 //! mpd clients and associated utilities.
 //!
@@ -22,7 +22,14 @@
 //! the connection, mpd clients often use multiple connections to the server (one to listen for
 //! updates, one or more on which to issue commands). This modules provides two different client
 //! types: [`Client`] for general-purpose use and [`IdleClient`] for long-lived connections
-//! listening for server notifiations
+//! listening for server notifiations.
+//!
+//! There *is* another idiom (used in libmpdel, e.g.): open a single connection & issue an "idle"
+//! command. When you want to issue a command, send a "noidle", then the command, then "idle" again.
+//! This isn't a race condition, as the server will buffer any changes that took place when you
+//! were not idle & send them when you re-issue the "idle" command.
+
+use crate::error_from;
 
 use async_trait::async_trait;
 use boolinator::Boolinator;
@@ -157,20 +164,20 @@ likely a bug; please consider reporting it to sp1ff@pobox.com",
         #[snafu(backtrace(true))]
         back: Backtrace,
     },
-}
-
-// TODO(sp1ff): re-factor this into one place
-macro_rules! error_from {
-    ($t:ty) => {
-        impl std::convert::From<$t> for Error {
-            fn from(err: $t) -> Self {
-                Error::Other {
-                    cause: Box::new(err),
-                    back: Backtrace::generate(),
-                }
-            }
-        }
-    };
+    /// Error in respone to "update"
+    #[snafu(display("Failed to update DB: `{}'", text))]
+    UpdateDB {
+        text: String,
+        #[snafu(backtrace(true))]
+        back: Backtrace,
+    },
+    /// Error in respone to "listplaylists"
+    #[snafu(display("Failed to list stored playlists: `{}'", text))]
+    GetStoredPlaylists {
+        text: String,
+        #[snafu(backtrace(true))]
+        back: Backtrace,
+    },
 }
 
 error_from!(crate::commands::Error);
@@ -184,7 +191,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// TODO(sp1ff): see about making these elements private
 /// A description of the current track, suitable for our purposes (as in, it only tracks the
 /// attributes needed for this module's functionality).
 #[derive(Clone, Debug)]
@@ -248,7 +254,7 @@ pub trait RequestResponse {
 }
 
 #[cfg(test)]
-mod test_mock {
+pub mod test_mock {
 
     use super::*;
 
@@ -302,7 +308,7 @@ pub struct MpdConnection<T: AsyncRead + AsyncWrite + Send + Unpin> {
     _proto_ver: String,
 }
 
-/// MpdConnection implements RequestRespone using the usual (async) socket I/O
+/// MpdConnection implements RequestResponse using the usual (async) socket I/O
 ///
 /// The callers need not include the trailing newline in their requests; the implementation will
 /// append it.
@@ -317,7 +323,40 @@ where
     async fn req_w_hint(&mut self, msg: &str, hint: usize) -> Result<String> {
         self.sock.write_all(format!("{}\n", msg).as_bytes()).await?;
         let mut buf = Vec::with_capacity(hint);
-        let _cb = self.sock.read_buf(&mut buf).await?;
+
+        // Given the request/response nature of the MPD protocol, our callers expect a complete
+        // response. Therefore we need to loop here until we see either "...^OK\n" or
+        // "...^ACK...\n".
+        let mut cb = 0; // # bytes read so far
+        let mut more = true; // true as long as there is more to read
+        while more {
+            cb += self.sock.read_buf(&mut buf).await?;
+
+            // The shortest complete response has three bytes. If the final byte in `buf' is not a
+            // newline, then don't bother looking further.
+            if cb > 2 && char::from(buf[cb - 1]) == '\n' {
+                // If we're here, `buf' *may* contain a complete response. Search backward for the
+                // previous newline. It may not exist: many responses are of the form "OK\n".
+                let mut idx = cb - 2;
+                while idx > 0 {
+                    if char::from(buf[idx]) == '\n' {
+                        idx += 1;
+                        break;
+                    }
+                    idx -= 1;
+                }
+
+                if (idx + 2 < cb && char::from(buf[idx]) == 'O' && char::from(buf[idx + 1]) == 'K')
+                    || (idx + 3 < cb
+                        && char::from(buf[idx]) == 'A'
+                        && char::from(buf[idx + 1]) == 'C'
+                        && char::from(buf[idx + 2]) == 'K')
+                {
+                    more = false;
+                }
+            }
+        }
+
         Ok(String::from_utf8(buf)?)
     }
 }
@@ -363,7 +402,8 @@ impl MpdConnection<UnixStream> {
 //                                               Client                                           //
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// General-purpose [`mpd`] client.
+/// General-purpose [`mpd`] client. "General-purpose" in the sense that we send commands through
+/// it; the interface is narrowly scoped to this program's needs.
 ///
 /// Construct instances with a TCP socket, a Unix socket, or any [`RequestResponse`] implementation.
 /// I hate carrying the regexp's around with each instance; ideally they'd be constructed once,
@@ -438,7 +478,6 @@ impl Client {
         // sub-string searching on "state: ", but when I realized I needed to only match
         // at the beginning of a line bailed & just went ahead. This makes for more succinct
         // code, since I can't count on order, either.
-
         let state = cap(
             &self.re_state,
             &text,
@@ -527,7 +566,6 @@ impl Client {
 
         let prefix = format!("sticker: {}=", sticker_name);
         if text.starts_with(&prefix) {
-            // Ok(Some(text[prefix.len()..].split('\n').collect()[0]))
             Ok(Some(
                 text[prefix.len()..].split('\n').collect::<Vec<&str>>()[0].to_string(),
             ))
@@ -585,6 +623,68 @@ impl Client {
             text: text.to_string(),
         })?;
         Ok(())
+    }
+
+    /// Update a URI
+    pub async fn update(&mut self, uri: &str) -> Result<u64> {
+        let msg = format!("update \"{}\"", uri);
+        let text = self.stream.req(&msg).await?;
+        debug!("Sent `{}'; got `{}'.", &msg, &text);
+
+        // We expect a response of the form:
+        //   updating_db: JOBID
+        //   OK
+        // on success, and
+        //   ACK ERR
+        // on failure.
+
+        let prefix = "updating_db: ";
+        if text.starts_with(prefix) {
+            // Seems prolix to me
+            Ok(text[prefix.len()..].split('\n').collect::<Vec<&str>>()[0]
+                .to_string()
+                .parse::<u64>()?)
+        } else {
+            Err(Error::UpdateDB {
+                text: text.to_string(),
+                back: Backtrace::generate(),
+            })
+        }
+    }
+
+    /// Get the list of stored playlists
+    pub async fn get_stored_playlists(&mut self) -> Result<std::vec::Vec<String>> {
+        let text = self.stream.req("listplaylists").await?;
+        debug!("Sent listplaylists; got `{}'.", &text);
+
+        // We expect a response of the form:
+        // playlist: a
+        // Last-Modified: 2020-03-13T17:20:16Z
+        // playlsit: b
+        // Last-Modified: 2020-03-13T17:20:16Z
+        // ...
+        // OK
+        //
+        // or
+        //
+        // ACK...
+        if text.starts_with("ACK") {
+            Err(Error::GetStoredPlaylists {
+                text: text.to_string(),
+                back: Backtrace::generate(),
+            })
+        } else {
+            Ok(text
+                .lines()
+                .filter_map(|x| {
+                    if x.starts_with("playlist: ") {
+                        Some(String::from(&x[10..]))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<String>>())
+        }
     }
 }
 
@@ -762,6 +862,51 @@ state: no-idea!?",
             .await
             .unwrap_err();
     }
+
+    /// Test the `update' method
+    #[tokio::test]
+    async fn test_update() {
+        let mock = Box::new(Mock::new(&[
+            ("update \"foo.mp3\"", "updating_db: 2\nOK\n"),
+            ("update \"foo.mp3\"", "ACK [50@0] {update} blahblahblah"),
+            ("update \"foo.mp3\"", "this makes no sense as a response"),
+        ]));
+        let mut cli = Client::new(mock).unwrap();
+        let _val = cli.update("foo.mp3").await.unwrap();
+        let _val = cli.update("foo.mp3").await.unwrap_err();
+        let _val = cli.update("foo.mp3").await.unwrap_err();
+    }
+
+    /// Test retrieving stored playlists
+    #[tokio::test]
+    async fn test_get_stored_playlists() {
+        let mock = Box::new(Mock::new(&[
+            (
+                "listplaylists",
+                "playlist: saturday-afternoons-in-santa-cruz
+Last-Modified: 2020-03-13T17:20:16Z
+playlist: gaelic-punk
+Last-Modified: 2020-05-24T00:36:02Z
+playlist: morning-coffee
+Last-Modified: 2020-03-13T17:20:16Z
+OK
+",
+            ),
+            ("listplaylists", "ACK [1@0] {listplaylists} blahblahblah"),
+        ]));
+
+        let mut cli = Client::new(mock).unwrap();
+        let val = cli.get_stored_playlists().await.unwrap();
+        assert_eq!(
+            val,
+            vec![
+                String::from("saturday-afternoons-in-santa-cruz"),
+                String::from("gaelic-punk"),
+                String::from("morning-coffee")
+            ]
+        );
+        let _val = cli.get_stored_playlists().await.unwrap_err();
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -833,7 +978,8 @@ impl IdleClient {
         Ok(())
     }
 
-    /// Enter idle state-- return the subsystem that changed, causing the connection to return
+    /// Enter idle state-- return the subsystem that changed, causing the connection to return. NB
+    /// this may block for some time.
     pub async fn idle(&mut self) -> Result<IdleSubSystem> {
         let text = self.conn.req("idle player message").await?;
         debug!("Sent idle message; got `{}'.", text);

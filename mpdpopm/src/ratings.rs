@@ -2,16 +2,16 @@
 //
 // This file is part of mpdpopm.
 //
-// mpdpopm is free software: you can redistribute it and/or modify it under the terms of the GNU General
-// Public License as published by the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// mpdpopm is free software: you can redistribute it and/or modify it under the terms of the GNU
+// General Public License as published by the Free Software Foundation, either version 3 of the
+// License, or (at your option) any later version.
 //
-// mpdpopm is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
-// implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+// mpdpopm is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even
+// the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
 // Public License for more details.
 //
-// You should have received a copy of the GNU General Public License along with mpdpopm.  If not, see
-// <http://www.gnu.org/licenses/>.
+// You should have received a copy of the GNU General Public License along with mpdpopm.  If not,
+// see <http://www.gnu.org/licenses/>.
 
 //! Logic for rating MPD tracks.
 //!
@@ -40,7 +40,8 @@
 //! track.
 
 use crate::clients::Client;
-use crate::commands::spawn;
+use crate::commands::{spawn, TaggedCommandFuture};
+use crate::error_from;
 
 use snafu::{Backtrace, GenerateBacktrace, OptionExt, ResultExt, Snafu};
 
@@ -78,20 +79,6 @@ pub enum Error {
         #[snafu(backtrace(true))]
         back: Backtrace,
     },
-}
-
-// TODO(sp1ff): re-factor this into one place
-macro_rules! error_from {
-    ($t:ty) => {
-        impl std::convert::From<$t> for Error {
-            fn from(err: $t) -> Self {
-                Error::Other {
-                    cause: Box::new(err),
-                    back: Backtrace::generate(),
-                }
-            }
-        }
-    };
 }
 
 error_from!(crate::clients::Error);
@@ -221,7 +208,7 @@ pub async fn set_rating<I: Iterator<Item = String>>(
     cmd: &str,
     args: I,
     music_dir: &str,
-) -> Result<Option<crate::commands::PinnedCmdFut>> {
+) -> Result<Option<std::pin::Pin<std::boxed::Box<TaggedCommandFuture>>>> {
     client
         .set_sticker(file, sticker, &format!("{}", rating))
         .await?;
@@ -244,49 +231,8 @@ pub async fn set_rating<I: Iterator<Item = String>>(
     );
     params.insert("rating".to_string(), format!("{}", rating));
 
-    Ok(Some(spawn(cmd, args, &params).await?))
+    Ok(Some(TaggedCommandFuture::pin(
+        spawn(cmd, args, &params).await?,
+        None, /* No need to update the DB */
+    )))
 }
-
-// TODO(sp1ff): this interface needs to be re-factored
-// Take the command message from our channel, apply it to the ratings for the given song,
-// and optionally run a command on the server (presumably to keep the track's ID3 tags
-// up-to-date).
-// pub async fn handle_rating<I: Iterator<Item = String>>(
-//     msg: &str,
-//     client: &mut Client,
-//     rating_sticker: &str,
-//     ratings_cmd: &str,
-//     ratings_cmd_args: &mut I,
-//     music_dir: &str,
-//     play_state: &PlayerStatus,
-// ) -> Result<Option<crate::commands::PinnedCmdFut>> {
-//     let req = RatingRequest::try_from(msg)?;
-//     let pathb = match req.track {
-//         RatedTrack::Current => match play_state {
-//             PlayerStatus::Stopped => {
-//                 return Err(Error::PlayerStopped {});
-//             }
-//             PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => curr.file.clone(),
-//         },
-//         RatedTrack::File(p) => p,
-//         RatedTrack::Relative(_i) => {
-//             return Err(Error::NotImplemented {
-//                 feature: String::from("Relative track position"),
-//             });
-//         }
-//     };
-//     let pth: &str = pathb.to_str().context(BadPath { pth: pathb.clone() })?;
-
-//     debug!("Setting a rating of {} for `{}'.", req.rating, pth);
-
-//     set_rating(
-//         client,
-//         rating_sticker,
-//         pth,
-//         req.rating,
-//         ratings_cmd,
-//         ratings_cmd_args,
-//         music_dir,
-//     )
-//     .await
-// }

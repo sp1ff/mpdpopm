@@ -1,3 +1,10 @@
+2020-08-13  Michael Herstine  <sp1ff@pobox.com>
+
+	0.1.7 re-factor
+	    - add database updates on command completion
+	    - add unit tests
+	    - general code hygiene
+
 2020-05-25  Michael Herstine  <sp1ff@pobox.com>
 
 	Added two new sub-commands & corresponding server-side implementations:
