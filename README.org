@@ -2,13 +2,58 @@
 #+DESCRIPTION: mpdpopm
 #+AUTHOR: Michael Herstine
 #+EMAIL: sp1ff@pobox.com
-#+DATE: <2020-04-19 Sun 12:43>
+#+DATE: <2020-09-19 Sat 17:35>
 #+AUTODATE: t
 
 * Introduction
 
-This will be a companion daemon for [[https://www.musicpd.org/][mpd]] that will maintain play counts & ratings. Similar to [[https://github.com/vincent-petithory/mpdfav][mpdfav]], but written in Rust (which I prefer to Go), it will allow you to maintain that information in your tags, as well as the sticker database, by invoking external commands to keep your tags up-to-date (something along the lines of [[https://alip.github.io/mpdcron][mpdcron]]).
+=mpdpopm= provides a companion daemon to [[https://www.musicpd.org/][mpd]] for maintaining play counts, ratings and last-played timestamps, along with an associated CLI for talking to the daemon. Similar to [[https://github.com/vincent-petithory/mpdfav][mpdfav]], but written in Rust (which I prefer to Go), it will maintain this information in your sticker database. Along the lines of [[https://alip.github.io/mpdcron][mpdcron]], it will also allow you to keep that information up-to-date in your tags by invoking external (user-provided & -configured) commands.
 
-* Status
+* Prerequisites
 
-This is work-in-progress. I have chosen the version number (0.1) in the hopes of indicating that.
+  - [[https://www.rust-lang.org/tools/install][Rust]]: Rust is a memory- & thread-safe language with no runtime or garbage collector
+  - [[https://www.musicpd.org/][Music Player Daemon]]: "Music Player Daemon (MPD) is a flexible, powerful, server-side application for playing music. Through plugins and libraries it can play a variety of sound files while being controlled by its network protocol."
+
+* Installing
+
+While I plan on publishing this to [[https://crates.io/][crates.io]], I have not yet done so. You can get a source tarball & install it through the usual =configure && make && make install= incantations.
+
+* Getting Started
+
+** Program Structure
+
+[[https://github.com/sp1ff/mpdpopm][mpdpopm]] provides two programs:
+
+  1. =mppopmd= is the companion daemon process
+  2. =mppopm= is the associated command-line interface to the daemon
+
+I still haven't provided a =systemd= service unit, so you'll have to run the daemon process manually (say =mppopmd --help= for the relevant options; you may want to run it in the foreground while you get it up & running). Once up, it will create an [[https://www.musicpd.org/][mpd]] channel for commands ("unwoundstack.com:commands" by default, but this is configurable) and begin monitoring [[https://www.musicpd.org/][mpd]] playback. Every time [[https://www.musicpd.org/][mpd]] plays a track, it will increment that track's playcount & last-played timestamp in the sticker database. If any [[https://www.musicpd.org/][mpd]] client sends the "rating" command to our channel, [[https://github.com/sp1ff/mpdpopm][mpdpopm]] will also update the corresponding sticker.
+
+Of particular interest is the fact that the user can configure commands to be run when the playcount is updated or the rating is set. You might, for instance, use this feature to update the =PCNT= and/or =POPM= tags accordingly.
+
+=mppopm= is a simple CLI that will let you get & set playcounts & ratings.
+
+** Configuration
+
+=mppopmd= takes an optional configuration file. I haven't documented it fully yet-- here is mine:
+
+#+BEGIN_EXAMPLE
+  ((log . "/home/mgh/var/log/mppopmd.log")
+   (host . "192.168.1.6")
+   (port . 6600)
+   (local_music_dir . "/mnt/Took-Hall/mp3")
+   (playcount_sticker . "unwoundstack.com:playcount")
+   (lastplayed_sticker . "unwoundstack.com:lastplayed")
+   (played_thresh . 0.6)
+   (poll_interval_ms . 5000)
+   (playcount_command . "/home/mgh/bin/scribbu")
+   (playcount_command_args . ("popm" "-a" "-A" "-b" "-o" "sp1ff@pobox.com" "-C" "%playcount" "%full-file"))
+   (commands_chan . "unwoundstack.com:commands")
+   (rating_sticker . "unwoundstack.com:rating")
+   (ratings_command . "/home/mgh/bin/scribbu")
+   (ratings_command_args . ("popm" "-a" "-A" "-b" "-o" "sp1ff@pobox.com" "-r" "%rating" "%full-file")))
+#+END_EXAMPLE
+
+* Status & Roadmap
+
+I am currently using [[https://github.com/sp1ff/mpdpopm][mpdpopm]] day in & day out, but this is still work-in-progress. I have chosen the version number (0.1) in the hopes of indicating that. Suggestions & bugs welcome at [[mailto:sp1ff@pobox.com][sp1ff@pobox.com]]!

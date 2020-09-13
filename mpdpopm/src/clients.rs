@@ -43,9 +43,11 @@ use tokio::{
 
 use std::{
     collections::HashMap,
+    convert::TryFrom,
     fmt,
     marker::{Send, Unpin},
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -175,6 +177,14 @@ likely a bug; please consider reporting it to sp1ff@pobox.com",
     #[snafu(display("Failed to list stored playlists: `{}'", text))]
     GetStoredPlaylists {
         text: String,
+        #[snafu(backtrace(true))]
+        back: Backtrace,
+    },
+    /// Error in converting a sticker to the desired type
+    #[snafu(display("Failed to convert sticker {}: {}", sticker, error))]
+    BadStickerConversion {
+        sticker: String,
+        error: String,
         #[snafu(backtrace(true))]
         back: Backtrace,
     },
@@ -556,19 +566,34 @@ impl Client {
         }
     }
 
-    // TODO(sp1ff): What's the idiomatic way to allow callers to request that we coerce the
-    // sticker value (if present) to the expected type?
     /// Retrieve a song sticker by name, as a string
-    pub async fn get_sticker(&mut self, file: &str, sticker_name: &str) -> Result<Option<String>> {
+    pub async fn get_sticker<T: FromStr>(
+        &mut self,
+        file: &str,
+        sticker_name: &str,
+    ) -> Result<Option<T>>
+    where
+        <T as FromStr>::Err: std::error::Error,
+    {
         let msg = format!("sticker get song \"{}\" \"{}\"", file, sticker_name);
         let text = self.stream.req(&msg).await?;
         debug!("Sent message `{}'; got `{}'", &msg, &text);
 
         let prefix = format!("sticker: {}=", sticker_name);
         if text.starts_with(&prefix) {
-            Ok(Some(
-                text[prefix.len()..].split('\n').collect::<Vec<&str>>()[0].to_string(),
-            ))
+            let s = text[prefix.len()..]
+                .split('\n')
+                .next()
+                .context(StickerGet { text: text.clone() })?;
+            let r = T::from_str(s);
+            match r {
+                Ok(t) => Ok(Some(t)),
+                Err(e) => Err(Error::BadStickerConversion {
+                    sticker: String::from(sticker_name),
+                    error: format!("{}", e),
+                    back: Backtrace::generate(),
+                }),
+            }
         } else if text.starts_with("ACK ") && text.ends_with("no such sticker\n") {
             Ok(None)
         } else {
@@ -579,14 +604,12 @@ impl Client {
         }
     }
 
-    // TODO(sp1ff): What's the idiomatic way to allow callers to pass the sticker value by any
-    // type?
     /// Set a song sticker by name, as text
-    pub async fn set_sticker(
+    pub async fn set_sticker<T: std::fmt::Display>(
         &mut self,
         file: &str,
         sticker_name: &str,
-        sticker_value: &str,
+        sticker_value: &T,
     ) -> Result<()> {
         let msg = format!(
             "sticker set song \"{}\" \"{}\" \"{}\"",
@@ -703,7 +726,11 @@ mod client_tests {
             "sticker: stick=splat\nOK\n",
         )]));
         let mut cli = Client::new(mock).unwrap();
-        let val = cli.get_sticker("foo.mp3", "stick").await.unwrap().unwrap();
+        let val = cli
+            .get_sticker::<String>("foo.mp3", "stick")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(val, "splat");
     }
 
@@ -819,10 +846,21 @@ state: no-idea!?",
             ),
         ]));
         let mut cli = Client::new(mock).unwrap();
-        let val = cli.get_sticker("foo.mp3", "stick").await.unwrap().unwrap();
+        let val = cli
+            .get_sticker::<String>("foo.mp3", "stick")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(val, "2");
-        let _val = cli.get_sticker("foo.mp3", "stick").await.unwrap().is_none();
-        let _val = cli.get_sticker("foo.mp3", "stick").await.unwrap_err();
+        let _val = cli
+            .get_sticker::<String>("foo.mp3", "stick")
+            .await
+            .unwrap()
+            .is_none();
+        let _val = cli
+            .get_sticker::<String>("foo.mp3", "stick")
+            .await
+            .unwrap_err();
     }
 
     /// Test the `set_sticker' method
@@ -840,9 +878,9 @@ state: no-idea!?",
             ),
         ]));
         let mut cli = Client::new(mock).unwrap();
-        let _val = cli.set_sticker("foo.mp3", "stick", "2").await.unwrap();
-        let _val = cli.set_sticker("foo.mp3", "stick", "2").await.unwrap_err();
-        let _val = cli.set_sticker("foo.mp3", "stick", "2").await.unwrap_err();
+        let _val = cli.set_sticker("foo.mp3", "stick", &"2").await.unwrap();
+        let _val = cli.set_sticker("foo.mp3", "stick", &"2").await.unwrap_err();
+        let _val = cli.set_sticker("foo.mp3", "stick", &"2").await.unwrap_err();
     }
 
     /// Test the `send_to_playlist' method
@@ -919,9 +957,9 @@ pub enum IdleSubSystem {
     Message,
 }
 
-// TODO(sp1ff): implement TryFrom, instead?
-impl IdleSubSystem {
-    fn from_string(text: &str) -> Result<IdleSubSystem> {
+impl TryFrom<&str> for IdleSubSystem {
+    type Error = Error;
+    fn try_from(text: &str) -> std::result::Result<Self, Self::Error> {
         let x = text.to_lowercase();
         if x == "player" {
             Ok(IdleSubSystem::Player)
@@ -1001,7 +1039,7 @@ impl IdleClient {
         let idx = text.find('\n').context(Idle {
             text: String::from(&text),
         })?;
-        let result = IdleSubSystem::from_string(&text[9..idx])?;
+        let result = IdleSubSystem::try_from(&text[9..idx])?;
         let text = text[idx + 1..].to_string();
         text.starts_with("OK").as_option().context(Idle {
             text: String::from(text),

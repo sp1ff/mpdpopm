@@ -193,8 +193,8 @@ mod rating_request_tests {
 
 /// Retrieve the rating for a track as an unsigned int from zero to 255
 pub async fn get_rating(client: &mut Client, sticker: &str, file: &str) -> Result<u8> {
-    match client.get_sticker(file, sticker).await? {
-        Some(text) => Ok(text.parse::<u8>()?),
+    match client.get_sticker::<u8>(file, sticker).await? {
+        Some(x) => Ok(x),
         None => Ok(0u8),
     }
 }
@@ -213,7 +213,6 @@ pub async fn set_rating<I: Iterator<Item = String>>(
         .set_sticker(file, sticker, &format!("{}", rating))
         .await?;
 
-    // TODO(sp1ff): factor out command-related logic?
     if cmd.len() == 0 {
         return Ok(None);
     }
@@ -232,7 +231,7 @@ pub async fn set_rating<I: Iterator<Item = String>>(
     params.insert("rating".to_string(), format!("{}", rating));
 
     Ok(Some(TaggedCommandFuture::pin(
-        spawn(cmd, args, &params).await?,
+        spawn(cmd, args, &params)?,
         None, /* No need to update the DB */
     )))
 }

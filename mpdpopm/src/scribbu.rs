@@ -2,16 +2,27 @@
 //
 // This file is part of mpdpopm.
 //
-// mpdpopm is free software: you can redistribute it and/or modify it under the terms of the GNU General
-// Public License as published by the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// mpdpopm is free software: you can redistribute it and/or modify it under the terms of the GNU
+// General Public License as published by the Free Software Foundation, either version 3 of the
+// License, or (at your option) any later version.
 //
-// mpdpopm is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
-// implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+// mpdpopm is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even
+// the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
 // Public License for more details.
 //
-// You should have received a copy of the GNU General Public License along with mpdpopm.  If not, see
-// <http://www.gnu.org/licenses/>.
+// You should have received a copy of the GNU General Public License along with mpdpopm.  If not,
+// see <http://www.gnu.org/licenses/>.
+
+//! scribbu -- aditional daemon commands that rely on [scribbu](https://github.com/sp1ff/scribbu).
+//!
+//! # Introduction
+//!
+//! [`mpdpopm`] accepts commands and generally implements them in terms of
+//! [mpd](https://www.musicpd.org/).  As I developed [`mpdpopm`] & used it, I found it convenient to
+//! add additional commands that could be implemented by running a little utility I wrote called
+//! [scribbu](https://github.com/sp1ff/scribbu). Since most users won't have
+//! [scribbu](https://github.com/sp1ff/scribbu) installed, I've moved support for these commands
+//! here & placed them behind a feature flag.
 
 use crate::clients::{Client, PlayerStatus};
 use crate::commands::TaggedCommandFuture;
@@ -93,17 +104,6 @@ pub fn set_genre(
     ))) // Update the DB when `set-genre' completes
 }
 
-/// "getxtag COOKIE( TRACK)?
-#[cfg(feature = "scribbu")]
-pub fn get_xtag(
-    _msg: &str,
-    _client: &mut Client,
-    _state: &PlayerStatus,
-) -> Result<Option<std::pin::Pin<std::boxed::Box<TaggedCommandFuture>>>> {
-    // TODO(sp1ff): write me!
-    Ok(None)
-}
-
 /// "setxtag URL-ENCODED-TAG-CLOUD( MERGE( TRACK)?)?
 #[cfg(feature = "scribbu")]
 pub fn set_xtag(
@@ -112,7 +112,6 @@ pub fn set_xtag(
     state: &PlayerStatus,
     music_dir: &str,
 ) -> Result<Option<std::pin::Pin<std::boxed::Box<TaggedCommandFuture>>>> {
-    // TODO(sp1ff): make these args configurable!
     let args: Vec<_> = msg.split(char::is_whitespace).collect();
     let mut a: Vec<String> = vec!["xtag".to_string(), "-A".to_string()];
     if args.len() > 1 {

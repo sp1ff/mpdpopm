@@ -121,12 +121,26 @@ error_from!(std::time::SystemTimeError);
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-// TODO(sp1ff): move this to one location
-// pub type PinnedCmdFut = std::pin::Pin<
-//     Box<dyn futures::future::Future<Output = tokio::io::Result<std::process::Output>>>,
-// >;
-
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Not behind a feature flag so that a non-scribbu build can still deserialize scribbu-config
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(default)]
+pub struct ScribbuConfig {
+    /// Command, with replacement parameters, to be run to set a song's genre
+    genre_command: String,
+    /// Args, with replacement parameters, for the genrecommand
+    genre_command_args: Vec<String>,
+}
+
+impl Default for ScribbuConfig {
+    fn default() -> ScribbuConfig {
+        ScribbuConfig {
+            genre_command: String::new(),
+            genre_command_args: Vec::<String>::new(),
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(default)]
@@ -137,7 +151,6 @@ pub struct Config {
     host: String,
     /// TCP port on which `mpd' is listening
     port: u16,
-    // TODO(sp1ff): If I'm co-located, I can get this directly from the mpd daemon
     /// The `mpd' root music directory, relative to the host on which *this* daemon is running
     local_music_dir: PathBuf,
     /// Sticker name under which to store playcounts
@@ -162,6 +175,8 @@ pub struct Config {
     ratings_command: String,
     /// Args, with replacement parameters, for the ratings command
     ratings_command_args: Vec<String>,
+    /// (optional) scribbu configuration
+    scribbu: ScribbuConfig,
 }
 
 impl Default for Config {
@@ -181,6 +196,7 @@ impl Default for Config {
             rating_sticker: String::from("unwoundstack.com:rating"),
             ratings_command: String::new(),
             ratings_command_args: Vec::<String>::new(),
+            scribbu: ScribbuConfig::default(),
         }
     }
 }
@@ -389,11 +405,9 @@ where
         client: &mut Client,
         state: &PlayerStatus,
     ) -> Result<Option<std::pin::Pin<std::boxed::Box<TaggedCommandFuture>>>> {
-        use scribbu::{get_xtag, set_genre, set_xtag};
+        use scribbu::{set_genre, set_xtag};
         if msg.starts_with("setgenre ") {
             Ok(set_genre(&msg[9..], client, state, self.music_dir)?)
-        } else if msg.starts_with("getxtag ") {
-            Ok(get_xtag(&msg[8..], client, state)?)
         } else if msg.starts_with("setxtag ") {
             Ok(set_xtag(&msg[8..], client, state, self.music_dir)?)
         } else {

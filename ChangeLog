@@ -1,3 +1,13 @@
+2020-09-19  Michael Herstine  <sp1ff@pobox.com>
+
+	More project hygiene:
+	  - running `mppopmd' as a daemon now works
+	  - improved the sticker API; it will now coerce caller-supplied
+	    types to & from strings
+	  - commands::spawn never needed to be async
+	  - started building-out the test suite preparatory to more
+	    re-factoring
+
 2020-08-13  Michael Herstine  <sp1ff@pobox.com>
 
 	0.1.7 re-factor

@@ -73,8 +73,8 @@ pub async fn get_play_count(
     sticker: &str,
     file: &str,
 ) -> Result<Option<usize>> {
-    match client.get_sticker(file, sticker).await? {
-        Some(text) => Ok(Some(text.parse::<usize>()?)),
+    match client.get_sticker::<usize>(file, sticker).await? {
+        Some(n) => Ok(Some(n)),
         None => Ok(None),
     }
 }
@@ -111,7 +111,7 @@ pub async fn set_play_count<I: Iterator<Item = String>>(
     params.insert("playcount".to_string(), format!("{}", play_count));
 
     Ok(Some(TaggedCommandFuture::pin(
-        spawn(cmd, args, &params).await?,
+        spawn(cmd, args, &params)?,
         None, /* No need to update the DB */
     )))
 }
@@ -122,10 +122,7 @@ pub async fn get_last_played(
     sticker: &str,
     file: &str,
 ) -> Result<Option<u64>> {
-    match client.get_sticker(file, sticker).await? {
-        Some(text) => Ok(Some(text.parse::<u64>()?)),
-        None => Ok(None),
-    }
+    Ok(client.get_sticker::<u64>(file, sticker).await?)
 }
 
 /// Set the last played for a track
@@ -143,7 +140,7 @@ pub async fn set_last_played(
 
 #[cfg(test)]
 /// Let's test these
-mod pc_lc_tests {
+mod pc_lp_tests {
 
     use super::*;
     use crate::clients::test_mock::Mock;
@@ -213,7 +210,6 @@ impl PlayState {
     pub fn last_status(&self) -> PlayerStatus {
         self.last_server_stat.clone()
     }
-    // TODO(sp1ff): Re-factor & unit test
     /// Poll the server-- update our status; maybe increment the current track's play count; the
     /// caller must arrange to have this method invoked periodically to keep our state fresh
     pub async fn update<I: Iterator<Item = String>>(
@@ -300,5 +296,179 @@ impl PlayState {
 
         self.last_server_stat = new_stat;
         Ok(fut) // No need to update the DB
+    }
+}
+
+#[cfg(test)]
+/// Let's test these
+mod player_state_tests {
+
+    use super::*;
+    use crate::clients::test_mock::Mock;
+    use std::str;
+
+    /// "Smoke" tests for player state
+    #[tokio::test]
+    async fn player_state_smoke() {
+        let mock = Box::new(Mock::new(&[
+            (
+                "status",
+                "repeat: 0
+random: 1
+single: 0
+consume: 1
+playlist: 2
+playlistlength: 66
+mixrampdb: 0.000000
+state: stop
+xfade: 5
+song: 51
+songid: 52
+nextsong: 11
+nextsongid: 12
+OK
+",
+            ),
+            (
+                "status",
+                "volume: 100
+repeat: 0
+random: 1
+single: 0
+consume: 1
+playlist: 2
+playlistlength: 66
+mixrampdb: 0.000000
+state: play
+xfade: 5
+song: 51
+songid: 52
+time: 5:228
+elapsed: 5.337
+bitrate: 192
+duration: 227.637
+audio: 44100:24:2
+nextsong: 11
+nextsongid: 12
+OK
+",
+            ),
+            (
+                "playlistid 52",
+                "file: E/Enya - Wild Child.mp3
+Last-Modified: 2008-11-09T00:06:30Z
+Artist: Enya
+Title: Wild Child
+Album: A Day Without Rain (Japanese Retail)
+Date: 2000
+Genre: Celtic
+Time: 228
+duration: 227.637
+Pos: 51
+Id: 52
+OK
+",
+            ),
+            (
+                "status",
+                "volume: 100
+repeat: 0
+random: 1
+single: 0
+consume: 1
+playlist: 2
+playlistlength: 66
+mixrampdb: 0.000000
+state: play
+xfade: 5
+song: 51
+songid: 52
+time: 5:228
+elapsed: 200
+bitrate: 192
+duration: 227.637
+audio: 44100:24:2
+nextsong: 11
+nextsongid: 12
+OK
+",
+            ),
+            (
+                "playlistid 52",
+                "file: E/Enya - Wild Child.mp3
+Last-Modified: 2008-11-09T00:06:30Z
+Artist: Enya
+Title: Wild Child
+Album: A Day Without Rain (Japanese Retail)
+Date: 2000
+Genre: Celtic
+Time: 228
+duration: 227.637
+Pos: 51
+Id: 52
+OK
+",
+            ),
+            (
+                "sticker get song \"E/Enya - Wild Child.mp3\" \"pc\"",
+                "sticker: pc=11\nOK\n",
+            ),
+            (
+                &format!(
+                    "sticker set song \"E/Enya - Wild Child.mp3\" \"lp\" \"{}\"",
+                    SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                ),
+                "OK\n",
+            ),
+            (
+                "sticker set song \"E/Enya - Wild Child.mp3\" \"pc\" \"12\"",
+                "OK\n",
+            ),
+        ]));
+
+        let mut cli = Client::new(mock).unwrap();
+        let mut ps = PlayState::new(&mut cli, "pc", "lp", 0.6).await.unwrap();
+        let check = match ps.last_status() {
+            PlayerStatus::Play(_) | PlayerStatus::Pause(_) => false,
+            PlayerStatus::Stopped => true,
+        };
+        assert!(check);
+
+        let args = vec!["a", "b", "c"]
+            .iter()
+            .map(|x| String::from(*x))
+            .collect::<Vec<String>>();
+        let check = match ps
+            .update(&mut cli, "", &mut args.iter().cloned(), "/music")
+            .await
+            .unwrap()
+        {
+            Some(_) => false,
+            None => true,
+        };
+        assert!(check);
+
+        match ps
+            .update(&mut cli, "/bin/echo", &mut args.iter().cloned(), "/music")
+            .await
+            .unwrap()
+        {
+            Some(fut) => {
+                let out = fut.await;
+                let outp_result = out.out.unwrap();
+                let outp_status = outp_result.status;
+                assert!(outp_status.success());
+                let outp_stdout = outp_result.stdout;
+                assert_eq!("a b c\n", str::from_utf8(&outp_stdout).unwrap());
+                let errp_stderr = outp_result.stderr;
+                assert!(errp_stderr.is_empty());
+
+                let _upd_option = out.upd;
+            }
+            None => assert!(false),
+        }
     }
 }

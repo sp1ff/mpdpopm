@@ -128,7 +128,7 @@ mod test_replacement_strings {
 pub type PinnedCmdFut =
     std::pin::Pin<Box<dyn Future<Output = tokio::io::Result<std::process::Output>>>>;
 
-pub async fn spawn<I: Iterator<Item = String>>(
+pub fn spawn<I: Iterator<Item = String>>(
     cmd: &str,
     args: I,
     params: &HashMap<String, String>,

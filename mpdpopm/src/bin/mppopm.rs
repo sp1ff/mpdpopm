@@ -56,9 +56,10 @@ use std::{fmt, path::PathBuf};
 /// [`mppopm`] errors
 #[derive(Snafu)]
 pub enum Error {
-    // TODO(sp1ff): not sure how I want to handle this; if it makes it out of `main', that's
-    // probably a bug.
-    #[snafu(display("{}", cause))]
+    #[snafu(display(
+        "{}  This is likely a bug; please consider filing a report with sp1ff@pobox.com.",
+        cause
+    ))]
     Other {
         #[snafu(source(true))]
         cause: Box<dyn std::error::Error>,
@@ -150,7 +151,6 @@ type Result<T> = std::result::Result<T, Error>;
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(default)]
 pub struct Config {
-    // TODO(sp1ff): support Unix sockets, as well
     /// Host on which `mpd' is listening
     host: String,
     /// TCP port on which `mpd' is listening
@@ -300,7 +300,6 @@ async fn set_play_counts(
     arg: Option<&str>,
 ) -> Result<()> {
     let cmd = match arg {
-        // TODO(sp1ff): implement the `setpc' command!
         Some(uri) => format!("setpc {} \\\"{}\\\"", playcount, uri),
         None => format!("setpc {}", playcount),
     };
@@ -330,7 +329,6 @@ async fn get_last_playeds<'a, Iter: Iterator<Item = &'a str>>(
         lastplayeds.push((file, lastplayed));
     }
 
-    // TODO(sp1ff): What if last played isn't there?
     if lastplayeds.len() == 1 && !with_uri {
         println!(
             "{}",
@@ -776,6 +774,7 @@ async fn main() -> Result<()> {
         }
     }
 
+    // Handle log verbosity: debug => verbose
     let lf = match (matches.is_present("verbose"), matches.is_present("debug")) {
         (_, true) => LevelFilter::Trace,
         (true, false) => LevelFilter::Debug,
