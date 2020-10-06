@@ -32,12 +32,11 @@
 //!    - ratings: "rate RATING( TRACK)?"
 //!    - set playcount: "setpc PC( TRACK)?"
 //!    - set lastplayed: "setlp TIMEESTAMP( TRACK)?"
-//!    - send-to-playlist: "send PLAYLIST" (sends the current track only)
 //!
 //! If compiled with the 'scribbu' feature enabled:
 //!
 //!    - set XTAG: "setxtag XTAG MERGE( TRACK)?"
-//!    - set the genre: "setgenre WINAMP-GENRE-NUMBER( TRACK)?"
+//!    - set the genre: "setgenre WINAMP-GENRE-TEXT( TRACK)?"
 //!
 
 #![recursion_limit = "512"] // for the `select!' macro
@@ -63,7 +62,7 @@ use futures::{
     pin_mut, select,
     stream::{FuturesUnordered, StreamExt},
 };
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use snafu::{Backtrace, GenerateBacktrace, OptionExt, Snafu};
 use tokio::{
@@ -253,8 +252,6 @@ where
     ) -> Result<Option<std::pin::Pin<std::boxed::Box<TaggedCommandFuture>>>> {
         if msg.starts_with("rate ") {
             self.rate(&msg[5..], client, state).await
-        } else if msg.starts_with("send ") {
-            self.send(&msg[5..], client, state).await
         } else if msg.starts_with("setpc ") {
             self.setpc(&msg[6..], client, state).await
         } else if msg.starts_with("setlp ") {
@@ -298,31 +295,6 @@ where
             self.music_dir,
         )
         .await?)
-    }
-    /// Handle send-to-playlist: "SEND PLAYLIST"
-    async fn send(
-        &self,
-        msg: &str,
-        client: &mut Client,
-        state: &PlayerStatus,
-    ) -> Result<Option<std::pin::Pin<std::boxed::Box<TaggedCommandFuture>>>> {
-        match state {
-            PlayerStatus::Stopped => {
-                warn!("Player is stopped-- can't send the current track to a playlist.");
-                Ok(None)
-            }
-            PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => {
-                client
-                    .send_to_playlist(
-                        curr.file.to_str().context(BadPath {
-                            pth: curr.file.clone(),
-                        })?,
-                        msg,
-                    )
-                    .await?;
-                Ok(None)
-            }
-        }
     }
     /// Handle `setpc': "PC( TRACK)?"
     async fn setpc(
@@ -583,11 +555,14 @@ pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
                     }
                 }
             }
-        } // `idle_client' mutable borrowed dropped here, which is important...
+        } // `idle_client' mutable borrow dropped here, which is important...
 
         // because it's mutably borrowed again here:
         if msg_check_needed {
-            check_messages(
+            // Check for any messages that have come in; if there's an error there's not a lot we
+            // can do about it (suppose some client fat-fingers a command name, e.g.)-- just log it
+            // & move on.
+            if let Err(err) = check_messages(
                 &mut client,
                 &mut idle_client,
                 state.last_status(),
@@ -595,7 +570,10 @@ pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
                 &ctx,
                 &mut cmds,
             )
-            .await?;
+            .await
+            {
+                error!("{}", err);
+            }
         }
     } // End `while'.
 

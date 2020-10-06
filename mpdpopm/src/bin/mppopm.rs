@@ -419,13 +419,6 @@ async fn get_playlists(client: &mut Client) -> Result<()> {
     Ok(())
 }
 
-/// Send the current track to a stored playlist
-async fn send_current_to_playlist(client: &mut Client, chan: &str, pl: &str) -> Result<()> {
-    client.send_message(chan, &format!("send {}", pl)).await?;
-    info!("Sent the current track to playlist `{}'.", pl);
-    Ok(())
-}
-
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 fn add_general_subcommands(app: App) -> App {
@@ -584,25 +577,6 @@ ID3v1 tag will be created.
             )
             .arg(Arg::with_name("genre").index(1).required(true))
             .arg(Arg::with_name("track").index(2)),
-    )
-    .subcommand(
-        App::new("send-to-playlist")
-            .about("Send the current track to a stored playlist")
-            .long_about(
-                "
-Send the currently playing track to the given stored playlist,
-creating it if it doesn't exist.
-
-As implemented, this command is very crude. It would be nice to:
-
-    - allow you to send multiple tracks by URI to a playlist
-    - allow you to send the track to multiple playlists
-    - when running interactive, provide auto-complete, so as to
-      avoid inadvertently creating new playlists due to typos.
-
-",
-            )
-            .arg(Arg::with_name("playlist").index(1).required(true)),
     )
 }
 
@@ -850,13 +824,6 @@ async fn main() -> Result<()> {
         .await?);
     } else if let Some(_subm) = matches.subcommand_matches("get-playlists") {
         return Ok(get_playlists(&mut client).await?);
-    } else if let Some(subm) = matches.subcommand_matches("send-to-playlist") {
-        return Ok(send_current_to_playlist(
-            &mut client,
-            &cfg.commands_chan,
-            subm.value_of("playlist").context(NoPlaylist {})?,
-        )
-        .await?);
     }
 
     if !try_scribbu_subcommands(matches, &mut client, cfg).await? {
