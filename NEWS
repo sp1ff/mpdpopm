@@ -1,5 +1,10 @@
 mpdpopm News -- history of user-visible changes           -*- outline -*-
 
+* 0.1.10 build
+
+** User-visible changes
+
+  - 'mppopm set-genre' now takes free-form text rather than a numeric genre
 * 0.1.9 build
 
 ** User-visible changes

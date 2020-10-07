@@ -2,7 +2,7 @@
 #+DESCRIPTION: mpdpopm
 #+AUTHOR: Michael Herstine
 #+EMAIL: sp1ff@pobox.com
-#+DATE: <2020-09-19 Sat 17:35>
+#+DATE: <2020-10-06 Tue 19:03>
 #+AUTODATE: t
 
 * Introduction
@@ -56,4 +56,4 @@ Of particular interest is the fact that the user can configure commands to be ru
 
 * Status & Roadmap
 
-I am currently using [[https://github.com/sp1ff/mpdpopm][mpdpopm]] day in & day out, but this is still work-in-progress. I have chosen the version number (0.1) in the hopes of indicating that. Suggestions & bugs welcome at [[mailto:sp1ff@pobox.com][sp1ff@pobox.com]]!
+I am currently using [[https://github.com/sp1ff/mpdpopm][mpdpopm]] day in & day out, but this is still work-in-progress. I have chosen the version number (0.1) in the hopes of indicating that. In particular, after build 0.1.10 I'll pull a feature branch on which I want to replace the =scribbu= feature flag with a generalized command framework. Suggestions & bugs welcome at [[mailto:sp1ff@pobox.com][sp1ff@pobox.com]]!

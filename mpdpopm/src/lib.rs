@@ -62,7 +62,7 @@ use futures::{
     pin_mut, select,
     stream::{FuturesUnordered, StreamExt},
 };
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use snafu::{Backtrace, GenerateBacktrace, OptionExt, Snafu};
 use tokio::{

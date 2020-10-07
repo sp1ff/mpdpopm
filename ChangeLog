@@ -1,4 +1,10 @@
-2020-10-05  Michael Herstine  <sp1ff@pobox.com>
+2020-10-06  Michael Herstine  <sp1ff@pobox.com>
+
+	Update the "set-genre" sub-command.
+	Change 'mppopm set-genre' to take arbitrary text rather than a
+	numeric Winamp genre.
+
+2020-10-06  Michael Herstine  <sp1ff@pobox.com>
 
 	Work in progress.
 	This commit:

@@ -395,7 +395,12 @@ async fn set_xtag(client: &mut Client, chan: &str, xtag: &str, args: Vec<&str>) 
 
 /// Set the genre
 #[cfg(feature = "scribbu")]
-async fn set_genre(client: &mut Client, chan: &str, genre: u8, track: Option<&str>) -> Result<()> {
+async fn set_genre(
+    client: &mut Client,
+    chan: &str,
+    genre: &str,
+    track: Option<&str>,
+) -> Result<()> {
     let cmd = match track {
         Some(uri) => format!("setgenre {} \\\"{}\\\"", genre, uri),
         None => format!("setgenre {}", genre),
@@ -613,7 +618,7 @@ async fn try_scribbu_subcommands(
         set_genre(
             client,
             &cfg.commands_chan,
-            subm.value_of("genre").context(NoGenre {})?.parse::<u8>()?,
+            subm.value_of("genre").context(NoGenre {})?,
             subm.value_of("track"),
         )
         .await?;
