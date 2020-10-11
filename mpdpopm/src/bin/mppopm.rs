@@ -27,7 +27,7 @@
 //! client for [`mppopmd`]. Run `mppopm --help` for detailed usage.
 
 use mpdpopm::{
-    clients::{Client, PlayerStatus},
+    clients::{quote, Client, PlayerStatus},
     error_from,
     playcounts::{get_last_played, get_play_count},
     ratings::get_rating,
@@ -56,10 +56,7 @@ use std::{fmt, path::PathBuf};
 /// [`mppopm`] errors
 #[derive(Snafu)]
 pub enum Error {
-    #[snafu(display(
-        "{}  This is likely a bug; please consider filing a report with sp1ff@pobox.com.",
-        cause
-    ))]
+    #[snafu(display("{}", cause))]
     Other {
         #[snafu(source(true))]
         cause: Box<dyn std::error::Error>,
@@ -377,42 +374,6 @@ async fn set_last_playeds(
     Ok(())
 }
 
-/// Set the xtag frame
-#[cfg(feature = "scribbu")]
-async fn set_xtag(client: &mut Client, chan: &str, xtag: &str, args: Vec<&str>) -> Result<()> {
-    let mut cmd = format!("setxtag {}", xtag);
-    args.iter().for_each(|x| {
-        if x.contains(char::is_whitespace) {
-            cmd.push_str(&format!(" \\\"{}\\\"", x));
-        } else {
-            cmd.push_str(&format!(" {}", x));
-        }
-    });
-    client.send_message(chan, &cmd).await?;
-    info!("xtag set/updated");
-    Ok(())
-}
-
-/// Set the genre
-#[cfg(feature = "scribbu")]
-async fn set_genre(
-    client: &mut Client,
-    chan: &str,
-    genre: &str,
-    track: Option<&str>,
-) -> Result<()> {
-    let cmd = match track {
-        Some(uri) => format!("setgenre {} \\\"{}\\\"", genre, uri),
-        None => format!("setgenre {}", genre),
-    };
-    client.send_message(chan, &cmd).await?;
-    match track {
-        Some(uri) => info!("Set the genre to {} for \"{}\".", genre, uri),
-        None => info!("Set the genre for the current track to {}.", genre),
-    }
-    Ok(())
-}
-
 /// Retrieve the list of stored playlists
 async fn get_playlists(client: &mut Client) -> Result<()> {
     let mut pls = client.get_stored_playlists().await?;
@@ -421,6 +382,23 @@ async fn get_playlists(client: &mut Client) -> Result<()> {
     for pl in pls {
         println!("{}", pl);
     }
+    Ok(())
+}
+
+/// Send an arbitrary command
+async fn send_command<'a, A>(client: &mut Client, chan: &str, args: A) -> Result<()>
+where
+    A: Iterator<Item = &'a str>,
+{
+    client
+        .send_message(
+            chan,
+            &format!(
+                "{}",
+                args.map(|a| quote(a)).collect::<Vec<String>>().join(" ")
+            ),
+        )
+        .await?;
     Ok(())
 }
 
@@ -530,111 +508,7 @@ is expressed in seconds since Unix epoch.",
             .arg(Arg::with_name("last-played").index(1).required(true))
             .arg(Arg::with_name("track").index(2)),
     )
-    .subcommand(App::new("get-playlists").about("retreive the list of stored palylists"))
-}
-
-#[cfg(feature = "scribbu")]
-fn add_scribbu_subcommands(app: App) -> App {
-    app.subcommand(
-        App::new("set-xtag")
-            .about("Set the XTAG ID3v2 frame for one track")
-            .long_about(
-                "
-Set the experimental tag-cloud frame. The tag cloud is an experimental
-ID3v2 frame (with frame identifier \"XTAG\") introduced by `scribbu'.
-It is meant to represent a collection of arbitrary tags attached to
-the track, with or without values. On the command-line, this
-sub-command expresses it as urlencoded query parameters, e.g.:
-
-    mppopm set-xtag sub-genres=foo,bar&90s...
-
-",
-            )
-            .arg(
-                Arg::with_name("merge")
-                    .short('m')
-                    .long("merge")
-                    .about("Merge the given tags with the extant cloud, if any"),
-            )
-            .arg(Arg::with_name("xtag").index(1).required(true))
-            .arg(Arg::with_name("track").index(2)),
-    )
-    .subcommand(
-        App::new("set-genre")
-            .about("Set the genre of one or more tracks")
-            .long_about(
-                "
-With one argument, set the genre of the currenly playing track to that
-argument (on which more below). With two, set the genre on the second
-track, expressed as an MPD song URI (i.e. the path relative to the MPD
-library root to the track, perhaps enclosed in double quotes).
-
-The genre given as an argument to this sub-command will be mapped to
-one of the textual names in the 192-member list of genres defined by
-Winamp by minimum Damerau-Levenshtein distance without regard to case.
-
-If the given song has no ID3v2 tag, one will be created (with a TCON
-frame set to the genre found above). If there is an ID3v1 tag, its
-genre byte will be set to the numeric value corresponding to the genre
-found above. If there is no ID3v1 tag, but there is an ID3v2 tag, and
-ID3v1 tag will be created.
-",
-            )
-            .arg(Arg::with_name("genre").index(1).required(true))
-            .arg(Arg::with_name("track").index(2)),
-    )
-}
-
-#[cfg(not(feature = "scribbu"))]
-fn add_scribbu_subcommands(app: App) -> App {
-    app
-}
-
-#[cfg(feature = "scribbu")]
-async fn try_scribbu_subcommands(
-    matches: clap::ArgMatches,
-    client: &mut Client,
-    cfg: Config,
-) -> Result<bool> {
-    if let Some(subm) = matches.subcommand_matches("set-xtag") {
-        let mut args = vec![if subm.is_present("merge") {
-            "true"
-        } else {
-            "false"
-        }];
-        match subm.value_of("track") {
-            Some(track) => args.push(track),
-            None => (),
-        }
-        set_xtag(
-            client,
-            &cfg.commands_chan,
-            subm.value_of("xtag").context(NoXtag {})?,
-            args,
-        )
-        .await?;
-        return Ok(true);
-    } else if let Some(subm) = matches.subcommand_matches("set-genre") {
-        set_genre(
-            client,
-            &cfg.commands_chan,
-            subm.value_of("genre").context(NoGenre {})?,
-            subm.value_of("track"),
-        )
-        .await?;
-        return Ok(true);
-    }
-
-    Ok(false)
-}
-
-#[cfg(not(feature = "scribbu"))]
-async fn try_scribbu_subcommands(
-    _matches: clap::ArgMatches,
-    _client: &mut Client,
-    _cfg: Config,
-) -> Result<bool> {
-    Ok(false)
+    .subcommand(App::new("get-playlists").about("retreive the list of stored playlists"))
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -686,7 +560,7 @@ async fn main() -> Result<()> {
         );
 
     app = add_general_subcommands(app);
-    app = add_scribbu_subcommands(app);
+    app = app.arg(Arg::with_name("args").multiple(true));
 
     let matches = app.get_matches();
 
@@ -829,11 +703,9 @@ async fn main() -> Result<()> {
         .await?);
     } else if let Some(_subm) = matches.subcommand_matches("get-playlists") {
         return Ok(get_playlists(&mut client).await?);
+    } else if let Some(args) = matches.values_of("args") {
+        return Ok(send_command(&mut client, &cfg.commands_chan, args).await?);
     }
 
-    if !try_scribbu_subcommands(matches, &mut client, cfg).await? {
-        return Err(Error::NoSubCommand {});
-    }
-
-    Ok(())
+    Err(Error::NoSubCommand)
 }

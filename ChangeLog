@@ -1,4 +1,11 @@
-2020-10-06  Michael Herstine  <sp1ff@pobox.com>
+2020-10-11  Michael Herstine  <sp1ff@pobox.com>
+
+	Generalized commands.
+	I removed the "scribbu" feature & associated commands & replaced
+	it with a more-general feature in which 'mpdpopm' admins can
+	define arbitrary server-side commands.
+
+2020-10-07  Michael Herstine  <sp1ff@pobox.com>
 
 	Update the "set-genre" sub-command.
 	Change 'mppopm set-genre' to take arbitrary text rather than a

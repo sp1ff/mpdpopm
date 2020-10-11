@@ -22,13 +22,100 @@
 //! seem like a vulnerability if your [`mpd`] server is listening on a socket, but it's not like
 //! callers can execute arbitrary code: certain events can trigger commands that you, the [`mpd`]
 //! server owner have configured.
+//!
+//! # The Generalized Command Framework
+//!
+//! In addition to the fixed commands, [mpdpopm](https://github.com/sp1ff/mpdpopm) provides a
+//! generalized command framework by which the admin can map arbitrary commands to code execution on
+//! the server-side. A generalized command can be described as:
+//!
+//! 1. the command name: commands shall be named according to the regular expression:
+//!    [a-zA-Z][-a-zA-Z0-9]+
+//!
+//! 2. command parameters: a command may take parameters; the parameters are defined by an array
+//!    of zero or more instances of:
+//!
+//!    - parameter name: parameter names shall match [a-zA-Z][-a-zA-Z0-9]+
+//!
+//!    - parameter type: parameters are typed:
+//!
+//!      - general/string
+//!
+//!      - song (empty means "current", otherwise song URI, maybe someday index into playlist)
+//!
+//!    parameters beyond a certain point may be marked "optional"; optional parameters that are
+//!    not provided shall be given a default value (the empty string for general parameters, or
+//!    the current track for a song parameter)
+//!
+//! 3. program to run, with arguments; arguments can be:
+//!
+//!    - string literals (program options, for instance)
+//!
+//!    - replacement parameters
+//!
+//!     - %1, %2, %3... will be replaced with the parameter in the corresponding position above
+//!
+//!     - %full-file will expand to the absolute path to the song named by the track argument,
+//!       if present; if this parameter is used, and the track is *not* provided in the
+//!       command arguments, it is an error
+//!
+//!     - %rating, %play-count & %last-played will expand to the value of the corresponding
+//!       sticker, if present. If any of these are used, and the track is *not* provided in
+//!       the command arguments, it is an error. If the corresponding sticker is not present in
+//!       the sticker database, default values of 0, 0, and Jan. 1 1970 (i.e. Unix epoch) will
+//!       be provided instead.
+//!
+//! ## Quoting
+//!
+//! [mpd](https://www.musicpd.org/) breaks up commands into their constituent tokens on the basis
+//! of whitespace:
+//!
+//! token := [a-zA-Z0-09~!@#$%^&*()-=_+[]{}\|;:<>,./?]+ | "([ \t'a-zA-Z0-09~!@#$%^&*()-=_+[]{}|;:<>,./?]|\"|\\)"
+//!
+//! In other words, a token is any group of ASCII, non-whitespace characters except for ' & " (even
+//! \). In order to include space, tab, ' or " the token must be enclosed in double quotes at which
+//! point " and \ (but *not* ') must be backslash-escaped. Details can be found
+//! [here](https://www.musicpd.org/doc/html/protocol.html#escaping-string-values) and
+//! [here](https://github.com/MusicPlayerDaemon/MPD/blob/master/src/util/Tokenizer.cxx#L170).
+//!
+//! This means that when invoking generalized commands via the MPD messages mechanism, the
+//! entire command will need to be quoted *twice* on the client side. An example will help
+//! illustrate. Suppose the command is named myfind and we wish to pass an argument which contains
+//! both ' characters & spaces:
+//!
+//!    myfind (Artist == 'foo' and rating > '***')
+//!    ^^^^^^ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//!    cmd    argument
+//!
+//! Since the argument contains spaces _and_ '-s we'll need to enclose it in double quotes (at
+//! which point the ' characters become permissible):
+//!
+//!    myfind "(Artist == 'foo' and rating > '***')"
+//!
+//! Since this entire command will itself be a single token in the "sendmessage" command, we
+//! need to quote it in its entirety on the client side:
+//!
+//!    "myfind \"(Artist == 'foo' and rating > '***')\""
+//!
+//! (Enclose the entire command in double-quotes, then backslash-escape any " or \ characters
+//! therein).
+//!
+//! The MPD docs suggest using a client library such as
+//! [libmpdclient](https://www.musicpd.org/libs/libmpdclient/) to do the quoting, but the
+//! implementation is
+//! [straightforward](https://github.com/MusicPlayerDaemon/libmpdclient/blob/master/src/quote.c#L37).
+
+use crate::clients::PlayerStatus;
 
 use futures::future::Future;
-use log::info;
+use log::{debug, info};
+use serde::{Deserialize, Serialize};
 use snafu::{OptionExt, Snafu};
 use tokio::process::Command;
 
 use std::collections::HashMap;
+use std::ffi::OsStr;
+use std::path::PathBuf;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                       module Error type                                        //
@@ -36,6 +123,19 @@ use std::collections::HashMap;
 
 #[derive(Debug, Snafu)]
 pub enum Error {
+    #[snafu(display("The path `{}' cannot be converted to a UTF-8 string", pth.display()))]
+    BadPath { pth: PathBuf },
+    #[snafu(display("Parameter {} is a duplciate track argument", index))]
+    DuplicateTrackArgument { index: usize },
+    #[snafu(display("Missing parameter {} & it it is not marked as default", index))]
+    MissingParameter { index: usize },
+    #[snafu(display("The current track was requested, but there is not current track"))]
+    NoCurrentTrack,
+    #[snafu(display(
+        "This command is marked as needing to update the affected track only, but \"
+there is no track given"
+    ))]
+    NoTrackToUpdate,
     #[snafu(display(
         "The template string `{}' has a trailing '%' character, which is illegal.",
         template
@@ -128,19 +228,22 @@ mod test_replacement_strings {
 pub type PinnedCmdFut =
     std::pin::Pin<Box<dyn Future<Output = tokio::io::Result<std::process::Output>>>>;
 
-pub fn spawn<I: Iterator<Item = String>>(
-    cmd: &str,
-    args: I,
-    params: &HashMap<String, String>,
-) -> Result<PinnedCmdFut> {
-    let cmd = process_replacements(&cmd, &params)?;
+/// Start process [`cmd`] with args [`I`] & return; the results will be available asynchronously
+///
+/// If [`cmd`] is not an absolute path, `PATH` will be searched in an OS-defined way.
+pub fn spawn<S, I>(cmd: S, args: I, params: &HashMap<String, String>) -> Result<PinnedCmdFut>
+where
+    I: Iterator<Item = String>,
+    S: AsRef<OsStr> + std::fmt::Debug,
+{
+    // let cmd = process_replacements(cmd, &params)?;
 
     let args: std::result::Result<Vec<_>, _> =
         args.map(|x| process_replacements(&x, &params)).collect();
 
     match args {
         Ok(a) => {
-            info!("Running command `{}' with args {:#?}", &cmd, &a);
+            info!("Running command `{:#?}' with args {:#?}", &cmd, &a);
             Ok(Box::pin(Command::new(&cmd).args(a).output()))
         }
         Err(err) => Err(Error::from(err)),
@@ -220,5 +323,178 @@ impl std::future::Future for TaggedCommandFuture {
                 upd: upd.clone(),
             }),
         }
+    }
+}
+
+/// Convenience alias for a boxed-then-pinned TaggedCommandFuture
+pub type PinnedTaggedCmdFuture = std::pin::Pin<std::boxed::Box<TaggedCommandFuture>>;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                      generalized commands                                      //
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// Describes the formal parameter type
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub enum FormalParameter {
+    Literal,
+    Track,
+}
+
+/// Describes the sort of database update that should take place on command completion
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub enum Update {
+    NoUpdate,
+    TrackOnly,
+    FullDatabase,
+}
+
+/// A general command that will be run on the server, invoked by an MPD message
+pub struct GeneralizedCommand {
+    /// Formal parameters
+    formal_parameters: Vec<FormalParameter>,
+    /// Formal parameters assume their default after this many places
+    default_after: usize,
+    /// MPD music directory -- used to form absolute paths
+    music_dir: PathBuf,
+    /// The command to be run; if not absolute, the `PATH` will be searched in an system-
+    /// dependent way
+    cmd: PathBuf,
+    /// Command arguments; may include replacement parameters (like "%full-file")
+    args: Vec<String>,
+    /// The sort of MPD music database update that needs to take place when this command finishes
+    update: Update,
+}
+
+impl GeneralizedCommand {
+    pub fn new<I1, I2>(
+        formal_params: I1,
+        default_after: usize,
+        music_dir: &str,
+        cmd: &PathBuf,
+        args: I2,
+        update: Update,
+    ) -> GeneralizedCommand
+    where
+        I1: Iterator<Item = FormalParameter>,
+        I2: Iterator<Item = String>,
+    {
+        GeneralizedCommand {
+            formal_parameters: formal_params.collect(),
+            default_after: default_after,
+            music_dir: PathBuf::from(music_dir),
+            cmd: cmd.clone(),
+            args: args.collect(),
+            update: update,
+        }
+    }
+
+    /// Execute a general command
+    ///
+    /// [`tokens`] shall be an iterator over the message tokens, beginning with the first token
+    /// *after* the command name
+    pub fn execute<'a, I>(&self, tokens: I, state: &PlayerStatus) -> Result<PinnedTaggedCmdFuture>
+    where
+        I: Iterator<Item = &'a str>,
+    {
+        // Prepare replacement parameters
+        let mut params = HashMap::<String, String>::new();
+        // We always provide %current-file (the full path to the currently playing track), if
+        // possible.
+        let current_file = match state {
+            PlayerStatus::Stopped => None,
+            PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => {
+                let mut cfp = self.music_dir.clone();
+                cfp.push(&curr.file);
+                let cfs = cfp
+                    .to_str()
+                    .context(BadPath { pth: cfp.clone() })?
+                    .to_string();
+                params.insert("current-file".to_string(), cfs.clone());
+                debug!("current-file is: {}", cfs);
+                Some(cfs)
+            }
+        };
+        // Now walk our formal parameters...
+        let mut i: usize = 1;
+        let mut saw_track = false;
+        let mut full_file: Option<String> = None;
+        let mut act_params = tokens.into_iter();
+        for form_param in &self.formal_parameters {
+            let act_param = act_params.next();
+            match (form_param, act_param) {
+                (FormalParameter::Literal, Some(token)) => {
+                    // Simple case-- replacement parameter %i will be "token"
+                    params.insert(format!("{}", i), token.into());
+                }
+                (FormalParameter::Literal, None) => {
+                    // Slightly more complicated, replacement parameter %i will be "", but only
+                    // if this formal parameter is allowed to be defaulted.
+                    if i < self.default_after {
+                        return Err(Error::MissingParameter { index: i });
+                    }
+                    debug!("%{} is: nil", i);
+                    params.insert(format!("{}", i), String::from(""));
+                }
+                (FormalParameter::Track, Some(token)) => {
+                    if saw_track {
+                        return Err(Error::DuplicateTrackArgument { index: i });
+                    }
+                    let mut ffp = self.music_dir.clone();
+                    ffp.push(PathBuf::from(token));
+                    let ffs = ffp.to_str().context(BadPath { pth: ffp.clone() })?;
+                    params.insert(format!("{}", i), ffs.to_string());
+                    params.insert("full-file".to_string(), ffs.to_string());
+                    full_file = Some(ffs.to_string());
+                    saw_track = true;
+                }
+                (FormalParameter::Track, None) => {
+                    if i < self.default_after {
+                        return Err(Error::MissingParameter { index: i });
+                    }
+                    if saw_track {
+                        return Err(Error::DuplicateTrackArgument { index: i });
+                    }
+                    match &current_file {
+                        Some(cf) => {
+                            full_file = Some(cf.clone());
+                            params.insert(format!("{}", i), cf.clone());
+                            params.insert("full-file".to_string(), cf.to_string());
+                        }
+                        None => {
+                            return Err(Error::NoCurrentTrack);
+                        }
+                    }
+                    saw_track = true;
+                }
+            }
+
+            i += 1;
+        }
+
+        // Take the PinnedCmdFuture we get from `spawn' & combine it with the update type for our
+        // caller...
+        Ok(TaggedCommandFuture::pin(
+            // spawn the process-- returns a PinnedCmdFuture
+            spawn(&self.cmd, self.args.iter().cloned(), &params)?,
+            // map self.update to an Option<String>
+            match self.update {
+                Update::NoUpdate => None,
+                Update::TrackOnly => {
+                    // At this point:
+                    //     - current_file is the absolute path to the current track, if any (None else)
+                    //     - full_file is the absolute path given in the command arguments, which may be the
+                    //       same as current_file, or may be different; it may also be None
+                    // In terms of DB updates, we give preference to full_file, then current_file
+                    match full_file {
+                        Some(x) => Some(format!("song {}", x)),
+                        None => match current_file {
+                            Some(x) => Some(format!("song {}", x)),
+                            None => return Err(Error::NoTrackToUpdate),
+                        },
+                    }
+                }
+                Update::FullDatabase => Some(String::from("")),
+            },
+        ))
     }
 }

@@ -408,6 +408,23 @@ impl MpdConnection<UnixStream> {
     }
 }
 
+/// Quote an argument by backslash-escaping " & \ characters
+pub fn quote(text: &str) -> String {
+    if text.contains(&[' ', '\t', '\'', '"'][..]) {
+        let mut s = String::from("\"");
+        for c in text.chars() {
+            if c == '"' || c == '\\' {
+                s.push('\\');
+            }
+            s.push(c);
+        }
+        s.push('"');
+        s
+    } else {
+        text.to_string()
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                               Client                                           //
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -638,7 +655,7 @@ impl Client {
 
     /// Send an arbitrary message
     pub async fn send_message(&mut self, chan: &str, msg: &str) -> Result<()> {
-        let msg = format!("sendmessage {} \"{}\"", chan, msg);
+        let msg = format!("sendmessage {} {}", chan, quote(msg));
         let text = self.stream.req(&msg).await?;
         debug!("Sent `{}'; got `{}'.", &msg, &text);
 
