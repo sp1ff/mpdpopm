@@ -40,7 +40,7 @@
 //! track.
 
 use crate::clients::Client;
-use crate::commands::{spawn, TaggedCommandFuture};
+use crate::commands::{spawn, PinnedTaggedCmdFuture, TaggedCommandFuture};
 use crate::error_from;
 
 use snafu::{Backtrace, GenerateBacktrace, OptionExt, ResultExt, Snafu};
@@ -200,6 +200,10 @@ pub async fn get_rating(client: &mut Client, sticker: &str, file: &str) -> Resul
 }
 
 /// Core routine for setting the rating for a track-- will run the associated command, if present
+///
+/// Set [`sticker`] on [`file`] to [`rating`]. Run [`cmd`] afterwards with arguments [`args`] if
+/// given. If no commands was specified return None. If so, return Some with a payload of a pinned
+/// TaggedCommandFuture representing the eventual results of that command.
 pub async fn set_rating<I: Iterator<Item = String>>(
     client: &mut Client,
     sticker: &str,
@@ -208,11 +212,12 @@ pub async fn set_rating<I: Iterator<Item = String>>(
     cmd: &str,
     args: I,
     music_dir: &str,
-) -> Result<Option<std::pin::Pin<std::boxed::Box<TaggedCommandFuture>>>> {
+) -> Result<Option<PinnedTaggedCmdFuture>> {
     client
         .set_sticker(file, sticker, &format!("{}", rating))
         .await?;
 
+    // This isn't the best way to indicate "no command"; should take an Option, instead
     if cmd.len() == 0 {
         return Ok(None);
     }

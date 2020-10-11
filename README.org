@@ -2,7 +2,7 @@
 #+DESCRIPTION: mpdpopm
 #+AUTHOR: Michael Herstine
 #+EMAIL: sp1ff@pobox.com
-#+DATE: <2020-10-06 Tue 19:03>
+#+DATE: <2020-10-21 Wed 12:53>
 #+AUTODATE: t
 
 * Introduction
@@ -16,7 +16,14 @@
 
 * Installing
 
-While I plan on publishing this to [[https://crates.io/][crates.io]], I have not yet done so. You can get a source tarball & install it through the usual =configure && make && make install= incantations.
+While I plan on publishing this to [[https://crates.io/][crates.io]], I have not yet done so. You can get a source tarball & install it through the usual =configure && make && make install=:
+
+#+BEGIN_SRC bash
+curl -L -O https://github.com/mpdpopm/archive/0.1.11.tar.gz
+tar xf mpdpopm-0.1.11.tar.gz && cd mpdpopm-0.1.11
+./configure && make all check
+sudo make install
+#+END_SRC
 
 * Getting Started
 
@@ -31,7 +38,7 @@ I still haven't provided a =systemd= service unit, so you'll have to run the dae
 
 Of particular interest is the fact that the user can configure commands to be run when the playcount is updated or the rating is set. You might, for instance, use this feature to update the =PCNT= and/or =POPM= tags accordingly.
 
-=mppopm= is a simple CLI that will let you get & set playcounts & ratings.
+=mppopm= is a simple CLI that will let you get & set playcounts & ratings; say =mppopm --help= to see what it offers.
 
 ** Configuration
 
@@ -54,6 +61,40 @@ Of particular interest is the fact that the user can configure commands to be ru
    (ratings_command_args . ("popm" "-a" "-A" "-b" "-o" "sp1ff@pobox.com" "-r" "%rating" "%full-file")))
 #+END_EXAMPLE
 
+** Generalized Commands
+
+The admin can also configure arbitrary commands to be run server-side in response to messages received on the mpdpopm command channel. As an example, an entry in the configuration file like this:
+
+#+BEGIN_EXAMPLE
+  (gen_cmds .
+          (((name . "set-genre")
+            (formal_parameters . (Literal Track))
+            (default_after . 1)
+            (cmd . "/home/mgh/bin/scribbu")
+            (args . ("genre" "-a" "-C" "-g" "%1" "%full-file"))
+            (update . TrackOnly)))
+#+END_EXAMPLE
+
+will define a new command "set-genre", with two parameters, the second of which can be omitted (it will default to the current track). When mpdpopm receives this command (i.e. when a client says something like:
+
+#+BEGIN_EXAMPLE
+  sendmessage unwoundstack.com:commands "set-genre Rock"
+#+END_EXAMPLE
+
+mpdpopm will invoke =/home/mgh/bin/scribbu= like this:
+
+#+BEGIN_EXAMPLE
+  /home/user/bin/mgh/scribbu genre -a -C -g Rock "${music-dir}/${song URI}"
+#+END_EXAMPLE
+
 * Status & Roadmap
 
-I am currently using [[https://github.com/sp1ff/mpdpopm][mpdpopm]] day in & day out, but this is still work-in-progress. I have chosen the version number (0.1) in the hopes of indicating that. In particular, after build 0.1.10 I'll pull a feature branch on which I want to replace the =scribbu= feature flag with a generalized command framework. Suggestions & bugs welcome at [[mailto:sp1ff@pobox.com][sp1ff@pobox.com]]!
+I am currently using [[https://github.com/sp1ff/mpdpopm][mpdpopm]] day in & day out with my music collection, but it's early days. I have chosen the version number (0.1) in the hopes of indicating that. I'm considering adding another sticker for a tag cloud, and adding a filter feature that would extend the MPD "find" capability to allow queries that include the stickers that [[https://github.com/sp1ff/mpdpopm][mpdpopm]] manages (so you could, for instance, say:
+
+#+BEGIN_EXAMPLE
+find (artist =~ foo) and (rating > 175)
+#+END_EXAMPLE
+
+MPD would handle the "artist =~" clause & [[https://github.com/sp1ff/mpdpopm][mpdpopm]] the "rating >" clause, as well as combining the results.
+
+Suggestions, bug repors & PRs welcome!

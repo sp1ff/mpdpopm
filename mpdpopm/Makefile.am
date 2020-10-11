@@ -9,12 +9,6 @@ cargo_verbose_ = $(cargo_verbose_$(AM_DEFAULT_VERBOSITY))
 cargo_verbose_0 =
 cargo_verbose_1 = --verbose
 
-if FEATURE_SCRIBBU
-    CARGO_FEATURE_ARGS = --features "scribbu"
-else
-    CARGO_FEATURE_ARGS =
-endif
-
 EXTRA_DIST = Cargo.lock
 bin_PROGRAMS = mppopmd mppopm
 
@@ -25,26 +19,45 @@ bin_PROGRAMS = mppopmd mppopm
 # location at make-time.
 
 # I handle this by having Autconf process vars.rs.am.in to vars.rs.am at configure time, and
-# adding a rule to Automake to build vars.rs from vars.rs.am at make-time.
-src/vars.rs: src/vars.rs.am
+# adding a rule to Automake to build the final rust file from vars.rs.am at make-time.
+# The name is ridiculous, but if I call it vars.rs, make gets confused(?).
+$(builddir)/src/flapdoodle.rs: $(builddir)/src/vars.rs.am
 	sed -e "s|\$${prefix}|$(prefix)|g" $< > $@
 
-CLEANFILES = src/vars.rs
+CLEANFILES = $(builddir)/Cargo.toml $(builddir)/src/flapdoodle.rs
 
-common_sources = vars.rs error_from.rs commands.rs clients.rs ratings.rs playcounts.rs lib.rs \
-	scribbu.rs
+common_sources = clients.rs	\
+		 commands.rs	\
+		 error_from.rs	\
+		 lib.rs		\
+		 messages.rs    \
+		 playcounts.rs	\
+		 ratings.rs
 
-mppopmd_SOURCES = Cargo.toml $(common_sources:%=src/%) src/bin/mppopmd.rs
+mppopmd_SOURCES = $(srcdir)/Cargo.toml $(common_sources:%=src/%) src/bin/mppopmd.rs
 
-mppopm_SOURCES = Cargo.toml $(common_sources:%=src/%) src/bin/mppopm.rs
+mppopm_SOURCES = $(srcdir)/Cargo.toml $(common_sources:%=src/%) src/bin/mppopm.rs
 
-mppopmd$(EXEEXT): $(mppopmd_SOURCES)
+# If the source tree is writable, copy Cargo.toml back into it, so that cargo will work
+$(srcdir)/Cargo.toml: $(builddir)/Cargo.toml
+	if test -w $(srcdir); then cp -v $(builddir)/Cargo.toml $(srcdir); fi
+
+# If the source tree is writable, vars.rs back into it, so that cargo will work
+$(srcdir)/src/vars.rs: $(builddir)/src/flapdoodle.rs
+	if test -w $(srcdir); then cp -v $(builddir)/src/flapdoodle.rs $(srcdir)/src/vars.rs; fi
+
+# Regardless, make sure they get into the distribution-- vars.rs will be built at install
+dist-hook:
+	cp -v Cargo.toml $(distdir)/mpdpopm
+	cp -v src/flapdoodle.rs $(distdir)/src/vars.rs
+
+mppopmd$(EXEEXT): $(mppopmd_SOURCES) $(srcdir)/Cargo.toml $(srcdir)/src/vars.rs
 	cd $(top_srcdir)/mpdpopm && \
-	CARGO_TARGET_DIR=@abs_top_builddir@/mpdpopm/target cargo build $(CARGO_VERBOSE) $(CARGO_RELEASE_ARGS) $(CARGO_FEATURE_ARGS)
+	CARGO_TARGET_DIR=@abs_top_builddir@/mpdpopm/target cargo build $(CARGO_VERBOSE) $(CARGO_RELEASE_ARGS)
 
-mppopm$(EXEEXT): $(mppopm_SOURCES)
+mppopm$(EXEEXT): $(mppopm_SOURCES) $(srcdir)/Cargo.toml $(srcdir)/src/vars.rs
 	cd $(top_srcdir)/mpdpopm && \
-	CARGO_TARGET_DIR=@abs_top_builddir@/mpdpopm/target cargo build $(CARGO_VERBOSE) $(CARGO_RELEASE_ARGS) $(CARGO_FEATURE_ARGS)
+	CARGO_TARGET_DIR=@abs_top_builddir@/mpdpopm/target cargo build $(CARGO_VERBOSE) $(CARGO_RELEASE_ARGS)
 
 clean-local:
 	cd $(top_srcdir)/mpdpopm && \
