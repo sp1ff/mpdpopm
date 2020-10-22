@@ -2,7 +2,7 @@
 #+DESCRIPTION: mpdpopm
 #+AUTHOR: Michael Herstine
 #+EMAIL: sp1ff@pobox.com
-#+DATE: <2020-10-21 Wed 12:53>
+#+DATE: <2020-10-22 Thu 09:33>
 #+AUTODATE: t
 
 * Introduction
@@ -19,8 +19,8 @@
 While I plan on publishing this to [[https://crates.io/][crates.io]], I have not yet done so. You can get a source tarball & install it through the usual =configure && make && make install=:
 
 #+BEGIN_SRC bash
-curl -L -O https://github.com/mpdpopm/archive/0.1.11.tar.gz
-tar xf mpdpopm-0.1.11.tar.gz && cd mpdpopm-0.1.11
+curl -L -O https://github.com/mpdpopm/archive/0.1.12.tar.gz
+tar xf mpdpopm-0.1.12.tar.gz && cd mpdpopm-0.1.12
 ./configure && make all check
 sudo make install
 #+END_SRC
@@ -89,7 +89,7 @@ mpdpopm will invoke =/home/mgh/bin/scribbu= like this:
 
 * Status & Roadmap
 
-I am currently using [[https://github.com/sp1ff/mpdpopm][mpdpopm]] day in & day out with my music collection, but it's early days. I have chosen the version number (0.1) in the hopes of indicating that. I'm considering adding another sticker for a tag cloud, and adding a filter feature that would extend the MPD "find" capability to allow queries that include the stickers that [[https://github.com/sp1ff/mpdpopm][mpdpopm]] manages (so you could, for instance, say:
+I am currently using [[https://github.com/sp1ff/mpdpopm][mpdpopm]] day in & day out with my music collection, but it's early days. I have chosen the version number (0.1) in the hopes of indicating that. I'm considering adding another sticker for a tag cloud, and adding a filter feature that would extend the MPD "find" capability to allow queries that include the stickers that [[https://github.com/sp1ff/mpdpopm][mpdpopm]] manages-- so you could, for instance, say:
 
 #+BEGIN_EXAMPLE
 find (artist =~ foo) and (rating > 175)

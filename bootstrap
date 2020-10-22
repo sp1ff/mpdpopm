@@ -1,3 +1,5 @@
 #!/bin/sh
 test -L README || ln -s README.org README
+emacs --batch --no-site-file -l org --find-file README.org -f org-md-export-to-markdown
+mv -v README.md mpdpopm
 autoreconf -vfi

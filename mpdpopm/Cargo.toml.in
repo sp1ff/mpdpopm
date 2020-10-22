@@ -3,6 +3,14 @@ name = "mpdpopm"
 version = "@PACKAGE_VERSION@"
 authors = ["@PACKAGE_AUTHOR@"]
 edition = "2018"
+license = "GPL-3.0-or-later"
+description = "Maintain ratings & playcounts for your mpd server"
+homepage = "https://github.com/sp1ff/mpdpopm"
+repository = "https://github.com/sp1ff/mpdpopm"
+readme = "README.md"
+keywords = ["mpd", "music", "daemon"]
+categories = ["multimedia", "network-programming", "database"]
+exclude = ["Cargo.toml.in", "Cargo.toml.orig", "Makefile", "Makefile.in", "Makefile.am", "rusty-tags.emacs", "src/vars.rs.am.in", "src/vars.rs.am", "flapdoodle.rs", "*.log"]
 
 [dependencies]
 async-trait = "0.1.31"

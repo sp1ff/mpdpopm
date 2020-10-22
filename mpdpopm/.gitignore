@@ -4,3 +4,4 @@ Cargo.lock
 .mpdpopm
 Cargo.toml
 rusty-tags.emacs
+README.md

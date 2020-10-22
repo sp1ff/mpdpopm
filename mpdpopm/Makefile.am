@@ -24,7 +24,9 @@ bin_PROGRAMS = mppopmd mppopm
 $(builddir)/src/flapdoodle.rs: $(builddir)/src/vars.rs.am
 	sed -e "s|\$${prefix}|$(prefix)|g" $< > $@
 
-CLEANFILES = $(builddir)/Cargo.toml $(builddir)/src/flapdoodle.rs
+CLEANFILES = $(builddir)/src/flapdoodle.rs
+
+DISTCLEANFILES = $(builddir)/Cargo.toml 
 
 common_sources = clients.rs	\
 		 commands.rs	\

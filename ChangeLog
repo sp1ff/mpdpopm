@@ -1,4 +1,6 @@
-2020-10-21  Michael Herstine  <sp1ff@pobox.com>
+2020-10-22  Michael Herstine  <sp1ff@pobox.com>
+
+	Preparing for publication to crates.io.
 
 	Generalized commands.
 	I removed the "scribbu" feature & associated commands & replaced
