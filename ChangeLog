@@ -1,3 +1,7 @@
+2020-11-18  Michael Herstine  <sp1ff@pobox.com>
+
+	Bugfix for issue #1.
+
 2020-10-22  Michael Herstine  <sp1ff@pobox.com>
 
 	Preparing for publication to crates.io.

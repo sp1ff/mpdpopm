@@ -1105,11 +1105,21 @@ impl IdleClient {
                     if line.starts_with("message: ") {
                         msgs.push(String::from(&line[9..]));
                     } else if line.starts_with("channel: ") {
-                        m.insert(chan.clone(), msgs.clone());
+                        match m.get_mut(&chan) {
+                            Some(v) => v.append(&mut msgs),
+                            None => {
+                                m.insert(chan.clone(), msgs.clone());
+                            }
+                        }
                         chan = String::from(&line[9..]);
                         msgs = Vec::new();
                     } else if line == "OK" {
-                        m.insert(chan.clone(), msgs.clone());
+                        match m.get_mut(&chan) {
+                            Some(v) => v.append(&mut msgs),
+                            None => {
+                                m.insert(chan.clone(), msgs.clone());
+                            }
+                        }
                         state = State::Finished;
                     } else {
                         return Err(Error::GetMessages {
@@ -1166,5 +1176,23 @@ OK
         assert_eq!(val.len(), 2);
         let val = hm.get("send-to-playlist").unwrap();
         assert!(val.len() == 1);
+    }
+
+    /// Test issue #1
+    #[tokio::test]
+    async fn test_issue_1() {
+        let mock = Box::new(Mock::new(&[(
+            "readmessages",
+            "channel: playcounts
+message: a
+channel: playcounts
+message: b
+OK
+",
+        )]));
+        let mut cli = IdleClient::new(mock).unwrap();
+        let hm = cli.get_messages().await.unwrap();
+        let val = hm.get("playcounts").unwrap();
+        assert_eq!(val.len(), 2);
     }
 }

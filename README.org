@@ -2,7 +2,7 @@
 #+DESCRIPTION: mpdpopm
 #+AUTHOR: Michael Herstine
 #+EMAIL: sp1ff@pobox.com
-#+DATE: <2020-10-22 Thu 09:33>
+#+DATE: <2020-11-18 Wed 12:53>
 #+AUTODATE: t
 
 * Introduction
@@ -16,11 +16,11 @@
 
 * Installing
 
-While I plan on publishing this to [[https://crates.io/][crates.io]], I have not yet done so. You can get a source tarball & install it through the usual =configure && make && make install=:
+mpdpopm is [[https://crates.io/crates/mpdpopm][available]] on [[https://crates.io/][crates.io]], but you can also get a source tarball & install it through the usual =configure && make && make install=:
 
 #+BEGIN_SRC bash
-curl -L -O https://github.com/mpdpopm/archive/0.1.12.tar.gz
-tar xf mpdpopm-0.1.12.tar.gz && cd mpdpopm-0.1.12
+curl -L -O https://github.com/mpdpopm/archive/0.1.13.tar.gz
+tar xf mpdpopm-0.1.13.tar.gz && cd mpdpopm-0.1.13
 ./configure && make all check
 sudo make install
 #+END_SRC
