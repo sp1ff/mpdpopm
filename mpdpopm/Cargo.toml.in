@@ -15,7 +15,7 @@ exclude = ["Cargo.toml.in", "Cargo.toml.orig", "Makefile", "Makefile.in", "Makef
 [dependencies]
 async-trait = "0.1.31"
 boolinator = "2.4.0"
-clap = "3.0.0-beta.1"
+clap = "=3.0.0-beta.1"
 errno = "0.2.6"
 futures = "0.3.5"
 libc = "0.2.74"

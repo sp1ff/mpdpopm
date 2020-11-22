@@ -1,0 +1,110 @@
+# Setting up a nightly build & test job for `mpdpopm'. Much thanks to
+# BurntShushi from whom I shamelessly copied a lot of this
+# <https://github.com/BurntSushi/ripgrep/blob/master/.github/workflows/ci.yml>
+name: ci
+on:
+  pull_request:
+  push:
+    branches:
+    - master
+  schedule:
+  - cron: '00 01 * * *'
+jobs:
+  build:
+    name: build
+    strategy:
+      matrix:
+        rust-build:
+          - pinned
+          - stable
+          - nightly
+        # TODO(sp1ff): add more here
+        os: [ubuntu-18.04, macos-10.15]
+        include:
+        - rust-build: pinned
+          os: ubuntu-18.04
+          rust: 1.47.0
+        - rust-build: stable
+          os: ubuntu-18.04
+          rust: stable
+        - rust-build: nightly
+          os: ubuntu-18.04
+          rust: nightly
+        - rust-build: pinned
+          os: macos-10.15
+          rust: 1.47.0
+        - rust-build: stable
+          os: macos-10.15
+          rust: stable
+        - rust-build: nightly
+          os: macos-10.15
+          rust: nightly
+    runs-on: ${{ matrix.os }}
+    env:
+      RUST_BACKTRACE: 1
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v2
+
+    - name: Install Tools (Ubuntu)
+      if: matrix.os == 'ubuntu-18.04'
+      shell: bash
+      run: |
+          pwd
+          set +x
+          sudo apt-get update
+          sudo apt-get install -y autoconf automake emacs
+          set -x
+
+    - name: Install Tools (macOS)
+      if: matrix.os == 'macos-10.15'
+      shell: bash
+      run: |
+          pwd
+          set +x
+          brew update
+          brew install autoconf automake emacs
+          set -x
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: ${{ matrix.rust }}
+        profile: minimal
+        override: true
+
+    - name: Configure mpdpopm
+      shell: bash
+      run: |
+        set +x
+        ./bootstrap && ./configure
+        set -x
+
+    - name: Build mpdpopm
+      run: make
+
+    # Copied verbatim from ripgrep. BurntSushi says "This is useful
+    # for debugging problems when the expected build artifacts (like
+    # shell completions and man pages) aren't generated."
+    - name: Show build.rs stderr
+      shell: bash
+      run: |
+        set +x
+        cd mpdpopm
+        pwd
+        stderr="$(find target/release -name stderr -print0 | xargs -0 ls -t | head -n1)"
+        if [ -s "$stderr" ]; then
+          echo "===== $stderr ===== "
+          cat "$stderr"
+          echo "====="
+        fi
+        set -x
+
+    - name: Run unit test suite
+      shell: bash
+      run: |
+        set +x
+        cd mpdpopm
+        pwd
+        cargo test --verbose
+        set -x
