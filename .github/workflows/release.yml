@@ -25,7 +25,8 @@ jobs:
     name: create-release
     runs-on: ubuntu-latest
     # Un-comment this for testing
-    # env:
+    env:
+      RELEASE_VERSION: 0.1.13
     #   RELEASE_VERSION: 0.0.1
     steps:
       - name: Create artifacts directory
