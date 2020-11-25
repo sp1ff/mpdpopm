@@ -2,30 +2,41 @@
 #+DESCRIPTION: mpdpopm
 #+AUTHOR: Michael Herstine
 #+EMAIL: sp1ff@pobox.com
-#+DATE: <2020-11-18 Wed 12:53>
+#+DATE: <2020-11-24 Tue 18:01>
 #+AUTODATE: t
 
 * Introduction
 
-=mpdpopm= provides a companion daemon to [[https://www.musicpd.org/][mpd]] for maintaining play counts, ratings and last-played timestamps, along with an associated CLI for talking to the daemon. Similar to [[https://github.com/vincent-petithory/mpdfav][mpdfav]], but written in Rust (which I prefer to Go), it will maintain this information in your sticker database. Along the lines of [[https://alip.github.io/mpdcron][mpdcron]], it will also allow you to keep that information up-to-date in your tags by invoking external (user-provided & -configured) commands.
+[[https://github.com/sp1ff/mpdpopm][mpdpopm]] provides a companion daemon to [[https://www.musicpd.org/][mpd]] for maintaining play counts, ratings and last-played timestamps, along with an associated CLI for talking to the daemon. Similar to [[https://github.com/vincent-petithory/mpdfav][mpdfav]], but written in Rust (which I prefer to Go), it will maintain this information in your sticker database. Along the lines of [[https://alip.github.io/mpdcron][mpdcron]], it will also allow you to keep that information up-to-date in your tags by invoking external (user-provided & -configured) commands.
 
 * Prerequisites
 
-  - [[https://www.rust-lang.org/tools/install][Rust]]: Rust is a memory- & thread-safe language with no runtime or garbage collector
   - [[https://www.musicpd.org/][Music Player Daemon]]: "Music Player Daemon (MPD) is a flexible, powerful, server-side application for playing music. Through plugins and libraries it can play a variety of sound files while being controlled by its network protocol."
 
+If you choose to use the pre-built [[https://github.com/sp1ff/mpdpopm/releases][binaries]], that's all you'll need-- you can jump down to [[#getting_started][Getting Started]], below (see [[#installing][Installing]], below).
+
+If you choose to download [[https://github.com/sp1ff/mpdpopm][mpdpopm]] from [[https://crates.io/crates/mpdpopm][crates.io]], you'll need:
+
+  - [[https://www.rust-lang.org/tools/install][Rust]]: Rust is a memory- & thread-safe language with no runtime or garbage collector
+
+If you would like to build from source, either from one of the source [[https://github.com/sp1ff/mpdpopm/releases][distributions]] or directly by cloning this repository, you'll also need the Gnu [[https://www.gnu.org/software/automake/manual/html_node/Autotools-Introduction.html][Autotools]] installed.
+
 * Installing
+  :PROPERTIES:
+  :CUSTOM_ID: installing
+  :END:
 
-mpdpopm is [[https://crates.io/crates/mpdpopm][available]] on [[https://crates.io/][crates.io]], but you can also get a source tarball & install it through the usual =configure && make && make install=:
+You can install [[https://github.com/sp1ff/mpdpopm][mpdpopm]] in a few different ways:
 
-#+BEGIN_SRC bash
-curl -L -O https://github.com/mpdpopm/archive/0.1.13.tar.gz
-tar xf mpdpopm-0.1.13.tar.gz && cd mpdpopm-0.1.13
-./configure && make all check
-sudo make install
-#+END_SRC
+  1. due to a suggestion by [[https://github.com/m040601][m040601]], you can now download pre-built binaries for each [[https://github.com/sp1ff/mpdpopm/releases][release]]; only Linux & MacOS are supported, right now, and only on x86_64 at that
+  2. you can download [[https://github.com/sp1ff/mpdpopm][mpdpopm]] from [[https://crates.io/crates/mpdpopm][crates.io]] (i.e. say =cargo install mpdpopm=)
+  3. you can grab one of the source distributions under each [[https://github.com/sp1ff/mpdpopm/releases][release]]; in that case it's the usual =./configure && make && sudo make install= incantation
+  4. if you clone the repo, make sure to run =./bootrap= before configuring
 
 * Getting Started
+  :PROPERTIES:
+  :CUSTOM_ID: getting_started
+  :END:
 
 ** Program Structure
 
@@ -96,5 +107,7 @@ find (artist =~ foo) and (rating > 175)
 #+END_EXAMPLE
 
 MPD would handle the "artist =~" clause & [[https://github.com/sp1ff/mpdpopm][mpdpopm]] the "rating >" clause, as well as combining the results.
+
+Windows support may be some time coming; the daemon depends on Unix signal handling, the MPD Unix socket, and the Unix daemon logic, especially =fork= & =exec=... if you'd like to run it on Windows, let me know-- if there's enough interest, and I can get some kind of Windows VM setup, I'll look at a port.
 
 Suggestions, bug repors & PRs welcome!
