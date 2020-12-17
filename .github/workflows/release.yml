@@ -3,15 +3,12 @@
 # <https://github.com/BurntSushi/ripgrep/blob/master/.github/workflows/release.yml>
 name: release
 on:
-  # TODO(sp1ff): I would *like* to allow this workflow to be triggered
-  # manually, which is what this event allegedly does
-  # <https://docs.github.com/en/free-pro-team@latest/actions/managing-workflow-runs/manually-running-a-workflow>
-  # but it doesn't work. I'm wondering if it has something to do with
-  # the fact that, at the time of this writing, I'm on the
-  # release-infra branch?
+  # This permits this workflow to be triggered manually. See the
+  # environment variable RELEASE_VERSION below, however.
   workflow_dispatch:
-  # Modifying the push event with 'branches' and 'tags' seems to be an OR operation (i.e. the workflow
-  # will run if either on branch release-infra *or* it has a tag of n.n.n)
+  # Modifying the push event with 'branches' and 'tags' seems to be an
+  # OR operation (i.e. the workflow will run if either on branch
+  # release-infra *or* it has a tag of n.n.n)
   push:
     # Un-comment this for testing
     # branches:
@@ -89,8 +86,7 @@ jobs:
       run: |
           pwd
           set -x
-          sudo apt-get update
-          sudo apt-get install -y autoconf automake emacs
+          sudo apt-get install -y autoconf automake emacs liblzma-dev
           set +x
 
     - name: Install Tools (macOS)
@@ -109,6 +105,11 @@ jobs:
         toolchain: ${{ matrix.rust }}
         profile: minimal
         override: true
+
+    - name: Install additional Rust tooling
+      shell: bash
+      run: |
+          cargo install cargo-deb
 
     - name: Configure mpdpopm
       shell: bash
@@ -142,6 +143,7 @@ jobs:
 
     - name: Strip release binary (linux and macos)
       if: matrix.build == 'linux' || matrix.build == 'macos'
+      shell: bash
       run: |
         cd mpdpopm
         strip target/release/mppopmd
@@ -157,7 +159,6 @@ jobs:
         cp -v mpdpopm/target/release/mppopm{,d} "$staging/bin"
         tar czf "$staging.tar.gz" "$staging"
         echo "ASSET=$staging.tar.gz" >> $GITHUB_ENV
-        set +x
 
     - name: Upload release archive
       uses: actions/upload-release-asset@v1.0.1
@@ -200,4 +201,29 @@ jobs:
         upload_url: ${{ env.RELEASE_UPLOAD_URL }}
         asset_path: ${{ env.DISTRO_XZ }}
         asset_name: ${{ env.DISTRO_XZ }}
+        asset_content_type: application/octet-stream
+
+    - name: Make Debian package
+      if: matrix.os == 'ubuntu-18.04'
+      shell: bash
+      # You would think I can deduce the name of the package from
+      # RELEASE_VERSION, but Debian uses different designatures for
+      # architecture (amd64 instead of x86_64, e.g.) than those
+      # produced by `uname'. Since there will only be one .deb in the
+      # output directory, I'll just figure it out that way.
+      run: |
+        set -x
+        cd mpdpopm
+        cargo deb
+        echo "DEBIAN_PKG=$(ls target/debian/*.deb)" >> $GITHUB_ENV
+
+    - name: Upload Debian package
+      if: matrix.os == 'ubuntu-18.04'
+      uses: actions/upload-release-asset@v1.0.1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ env.RELEASE_UPLOAD_URL }}
+        asset_path: ${{ env.DEBIAN_PKG }}
+        asset_name: ${{ env.DEBIAN_PKG }}
         asset_content_type: application/octet-stream

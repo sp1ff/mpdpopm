@@ -1,0 +1,10 @@
+# -*- Dockerfile -*-
+FROM archlinux:latest
+
+RUN useradd build && \
+	passwd -d build && \
+	mkdir /home/build && \
+	chown build:build /home/ild && \
+	pacman -Sy --noconfirm gcc sudo && \
+	sudo -u build bash -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y" && \
+	sudo -u build bash -c "source /home/build/.cargo/env && cargo install cargo-arch"

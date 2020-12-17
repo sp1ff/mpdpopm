@@ -1,5 +1,12 @@
 mpdpopm News -- history of user-visible changes           -*- outline -*-
 
+* 0.1.14 build
+
+** User-visible changes
+
+*** Complete re-write of the README
+
+*** Releases will now contain pre-built binaries & a Debian binary package
 * 0.1.13 build
 
 ** Bugfixes

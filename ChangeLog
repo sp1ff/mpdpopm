@@ -1,3 +1,28 @@
+2020-12-16  Michael Herstine  <sp1ff@pobox.com>
+
+	Address issue #2.
+	This commit contains no new code or features; rather it is a
+	significant re-work to the user docs (i.e. README.org) along
+	with the provision of pre-built binaries & a Debian binary
+	package.
+
+2020-11-24  Michael Herstine  <sp1ff@pobox.com>
+
+	Hopefully, my final workflow commit.
+	    1. Re-comment the version
+	    2. Change the build-release job to only upload source Autotools
+	       distros for Ubuntu
+
+	Hard-coding the release version preparatory to forcing a release.
+
+	Updated the README with up-to-date installation instructions.
+
+	Adding a release workflow.
+
+2020-11-22  Michael Herstine  <sp1ff@pobox.com>
+
+	Committing my first GitHub Actions workflow
+
 2020-11-18  Michael Herstine  <sp1ff@pobox.com>
 
 	Bugfix for issue #1.

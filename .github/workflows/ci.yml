@@ -54,7 +54,6 @@ jobs:
           set -x
           sudo apt-get update
           sudo apt-get install -y autoconf automake emacs
-          set +x
 
     - name: Install Tools (macOS)
       if: matrix.os == 'macos-10.15'
@@ -64,7 +63,6 @@ jobs:
           set -x
           brew update
           brew install autoconf automake emacs
-          set +x
 
     - name: Install Rust
       uses: actions-rs/toolchain@v1
@@ -73,12 +71,16 @@ jobs:
         profile: minimal
         override: true
 
+    - name: Install additional Rust tooling
+      shell: bash
+      run: |
+          cargo install cargo-deb
+
     - name: Configure mpdpopm
       shell: bash
       run: |
         set -x
         ./bootstrap && ./configure
-        set +x
 
     - name: Build mpdpopm
       run: make
@@ -98,7 +100,6 @@ jobs:
           cat "$stderr"
           echo "====="
         fi
-        set +x
 
     - name: Run unit test suite
       shell: bash
@@ -107,8 +108,17 @@ jobs:
         cd mpdpopm
         pwd
         cargo test --verbose
-        set +x
 
     - name: Check the Autotools distribution
       shell: bash
       run: make distcheck
+
+    - name: Check the Debian package
+      if: matrix.os == 'ubuntu-18.04'
+      shell: bash
+      run: |
+        set -x
+        cd mpdpopm
+        cargo deb
+        
+      

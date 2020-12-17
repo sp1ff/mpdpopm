@@ -4,6 +4,7 @@ version = "@PACKAGE_VERSION@"
 authors = ["@PACKAGE_AUTHOR@"]
 edition = "2018"
 license = "GPL-3.0-or-later"
+license-file = "../LICENSE"
 description = "Maintain ratings & playcounts for your mpd server"
 homepage = "https://github.com/sp1ff/mpdpopm"
 repository = "https://github.com/sp1ff/mpdpopm"
@@ -28,3 +29,32 @@ serde = { version = "1.0", features = ["derive"] }
 serde-lexpr = "0.1.1"
 snafu = { version = "0.6.7", features = ["backtraces"] }
 tokio = { version = "0.2.22", features = ["dns", "io-util", "macros", "process", "rt-threaded", "signal", "tcp", "time", "uds"] }
+
+[package.metadata.deb]
+maintainer = "@PACKAGE_AUTHOR@"
+copyright = "Copyright (C) 2020 @PACKAGE_AUTHOR@"
+extended-description = """
+mpdpopm provides a companion daemon to mpd <https://www.musicpd.org>/ \
+for maintaining play counts, ratings and last-played timestamps, \
+along with an associated CLI for talking to the daemon. Similar to \
+mpdfav <https://github.com/vincent-petithory/mpdfav>, but written in \
+Rust (which I prefer to Go), it will maintain this information in \
+your sticker database. Along the lines of mpdcron \
+<https://alip.github.io/mpdcron>, it will also allow you to keep that \
+information up-to-date in your tags by invoking external \
+(user-provided & -configured) commands."""
+section = "Sound"
+priority = "optional"
+# If I use "$auto", cargo-deb will choose a fairly recent version of
+# libc6 (2.31); I've verified on the debian:slim-latest Docker package
+# that it only needs 2.28-10 (and possibly much older). I'm going to
+# roll the dice & just specify no version.
+depends = "libc6"
+assets = [
+       ["target/release/mppopm", "usr/local/bin/", "755"],
+       ["target/release/mppopmd", "usr/local/bin/", "755"],
+       ["README.md", "usr/local/share/doc/mpdpopm/README", "644"],
+]
+
+[package.metadata.arch]
+arch = ["x86_64"]
