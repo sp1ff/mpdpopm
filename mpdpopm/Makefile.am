@@ -42,11 +42,12 @@ common_sources = clients.rs	\
 		 lib.rs		\
 		 messages.rs    \
 		 playcounts.rs	\
-		 ratings.rs
+		 ratings.rs     \
+		 filters_ast.rs
 
-mppopmd_SOURCES = $(srcdir)/Cargo.toml $(common_sources:%=src/%) src/bin/mppopmd.rs $(builddir)/mppopmd.conf $(builddir)/mppopmd.service
+mppopmd_SOURCES = build.rs $(srcdir)/Cargo.toml $(common_sources:%=src/%) src/bin/mppopmd.rs src/filters.lalrpop $(builddir)/mppopmd.conf $(builddir)/mppopmd.service
 
-mppopm_SOURCES = $(srcdir)/Cargo.toml $(common_sources:%=src/%) src/bin/mppopm.rs
+mppopm_SOURCES = build.rs $(srcdir)/Cargo.toml $(common_sources:%=src/%) src/bin/mppopm.rs
 
 # If the source tree is writable, copy Cargo.toml back into it, so that cargo will work
 $(srcdir)/Cargo.toml: $(builddir)/Cargo.toml

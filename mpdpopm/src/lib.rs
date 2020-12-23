@@ -35,10 +35,15 @@
 pub mod clients;
 pub mod commands;
 pub mod error_from;
+pub mod filters_ast;
 pub mod messages;
 pub mod playcounts;
 pub mod ratings;
 pub mod vars;
+
+#[macro_use]
+extern crate lalrpop_util;
+lalrpop_mod!(pub filters); // synthesized by LALRPOP
 
 use clients::{Client, IdleClient, IdleSubSystem};
 use commands::{FormalParameter, GeneralizedCommand, TaggedCommandFuture, Update};

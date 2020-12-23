@@ -1,0 +1,79 @@
+// Copyright (C) 2020 Michael Herstine <sp1ff@pobox.com>  -*- mode: rust; rust-format-on-save: nil -*-
+//
+// This file is part of mpdpopm.
+//
+// mpdpopm is free software: you can redistribute it and/or modify it under the terms of the GNU
+// General Public License as published by the Free Software Foundation, either version 3 of the
+// License, or (at your option) any later version.
+//
+// mpdpopm is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even
+// the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+// Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with mpdpopm.  If not,
+// see <http://www.gnu.org/licenses/>.
+
+use crate::filters_ast::{Conjunction, Disjunction, Expression, OpCode, Term}; 
+
+grammar;
+
+pub ExprOp: OpCode = {
+    "=="       => OpCode::Equality,
+    "!="       => OpCode::Inequality,
+    "contains" => OpCode::Contains,
+    "=~"       => OpCode::RegexMatch,
+    "!~"       => OpCode::RegexExclude,
+    ">"        => OpCode::GreaterThan,
+    "<"        => OpCode::LessThan,
+    ">="       => OpCode::GreaterThanEqual,
+    "<="       => OpCode::LessThanEqual,
+};
+
+// TODO(sp1ff): Needs clean-up
+pub Token: &'input str = {
+    // I've just ruled-out '(' & ')'
+    <s:r"[a-zA-Z0-09~!@#$%^&*-=_+\[\]{}\|;:<>,./?]+"> => {
+    // First term has no '(' character in it
+    // Need to somehow rule out ending in a ')'
+    // <s:r"[a-zA-Z0-09~!@#$%^&*)-=_+\[\]{}\|;:<>,./?][a-zA-Z0-09~!@#$%^&*()-=_+\[\]{}\|;:<>,./?]*"> => {
+        eprintln!("matched token: ``{}''.", s);
+        s
+    },
+    <s:r#""([ \t'a-zA-Z0-09~!@#$%^&*()-=_+\[\]{}|;:<>,./?]|\\"|\\\))+""#> => {
+        eprintln!("matched token: ``{}''.", s);
+        s
+    },
+};
+
+pub Term: Box<Term<'input>> = {
+    <t:Token> <u:Token> => {
+        eprintln!("matched unary condition: ``({}, {})''", t, u);
+        Box::new(Term::UnaryCondition(t, u))
+    },
+    <t:Token> <o:ExprOp> <u:Token> => {
+        eprintln!("matched binary condition: ``({}, {:#?}, {})''", t, o, u);
+        Box::new(Term::BinaryCondition(t, o, u))
+    },
+}
+
+pub Conjunction: Box<Conjunction<'input>> = {
+    <e1:Expression> "AND" <e2:Expression> => Box::new(Conjunction::Simple(e1, e2)),
+    <c:Conjunction> "AND" <e:Expression> => Box::new(Conjunction::Compound(c, e)),
+}
+
+pub Disjunction: Box<Disjunction<'input>> = {
+    <e1:Expression> "OR" <e2:Expression> => Box::new(Disjunction::Simple(e1, e2)),
+    <c:Disjunction> "OR" <e:Expression> => Box::new(Disjunction::Compound(c, e)),
+}
+
+pub Expression: Box<Expression<'input>> = {
+    "(" <t:Term> ")" => {
+        eprintln!("matched simple expression: {:#?}", t);
+        Box::new(Expression::Simple(t))
+    },
+    "(" "!" <e:Expression> ")" => Box::new(Expression::Negation(e)),
+    "(" <c:Conjunction> ")" => Box::new(Expression::Conjunction(c)),
+    "(" <c:Disjunction>  ")" => Box::new(Expression::Disjunction(c)),
+}
+
+

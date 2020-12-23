@@ -12,6 +12,9 @@
 	    1. addresses issue #3 by providing an Arch package with
 	       releases
 	    2. addresses issue #4 by providing a systemd unit
+2020-12-26  Michael Herstine  <sp1ff@pobox.com>
+
+	First commit of the filter parser.
 
 2020-12-19  Michael Herstine  <sp1ff@pobox.com>
 
