@@ -1,4 +1,14 @@
-2020-12-16  Michael Herstine  <sp1ff@pobox.com>
+2020-12-26  Michael Herstine  <sp1ff@pobox.com>
+
+	First commit of the filter parser.
+
+2020-12-19  Michael Herstine  <sp1ff@pobox.com>
+
+	Commenting out the hard-coded release number in release.yml.
+
+2020-12-17  Michael Herstine  <sp1ff@pobox.com>
+
+	Fixing-up release workflow
 
 	Address issue #2.
 	This commit contains no new code or features; rather it is a
