@@ -1,4 +1,4 @@
-// Copyright (C) 2020 Michael Herstine <sp1ff@pobox.com>
+// Copyright (C) 2020-2021 Michael Herstine <sp1ff@pobox.com>
 //
 // This file is part of mpdpopm.
 //
@@ -14,6 +14,14 @@
 // see <http://www.gnu.org/licenses/>.
 
 //! filters-ast -- Types for building the Abstract Syntax Tree when parsing filters
+
+use crate::clients::Client;
+
+use snafu::{Backtrace, GenerateBacktrace, OptionExt, Snafu};
+
+use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum OpCode {
@@ -76,10 +84,11 @@ mod smoke_tests {
     #[test]
     fn test_conditions() {
         assert!(TermParser::new().parse("base foo").is_ok());
-        assert!(TermParser::new().parse("artst == foo").is_ok());
+        assert!(TermParser::new().parse("artist == foo").is_ok());
         assert!(TermParser::new()
             .parse(r#"artst =~ "foo bar \"splat\"!""#)
             .is_ok());
+        assert!(TermParser::new().parse("Artist =~ 'Pogues'").is_ok());
 
         match *TermParser::new()
             .parse(r#"base "/Users/me/My Music""#)
@@ -137,5 +146,12 @@ mod smoke_tests {
                 r#"((base foo) AND (Artist == "foo bar") AND ((!(file == /net/mp3/A/a.mp3)) OR (file == /pub/mp3/A/a.mp3)))"#
             )
             .is_ok());
+    }
+
+    #[test]
+    fn test_disjunction() {
+        assert!(ExpressionParser::new().
+                parse(r#"((Artist =~ 'Flogging Molly') OR (Artist =~ 'Dropkick Murphys') OR (Artist =~ 'Pogues'))"#)
+                .is_ok());
     }
 }

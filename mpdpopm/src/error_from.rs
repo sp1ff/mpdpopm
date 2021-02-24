@@ -1,4 +1,4 @@
-// Copyright (C) 2020 Michael Herstine <sp1ff@pobox.com>
+// Copyright (C) 2020-2021 Michael Herstine <sp1ff@pobox.com>
 //
 // This file is part of mpdpopm.
 //
@@ -14,8 +14,6 @@
 // see <http://www.gnu.org/licenses/>.
 
 /// Provide an implementation of std::convert::From for it's argument for type Error
-///
-/// I'm
 #[macro_export]
 macro_rules! error_from {
     ($t:ty) => {

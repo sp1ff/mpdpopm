@@ -1,4 +1,4 @@
-// Copyright (C) 2020 Michael Herstine <sp1ff@pobox.com>  -*- mode: rust; rust-format-on-save: nil -*-
+// Copyright (C) 2020-2021 Michael Herstine <sp1ff@pobox.com>  -*- mode: rust; rust-format-on-save: nil -*-
 //
 // This file is part of mpdpopm.
 //
@@ -43,6 +43,10 @@ pub Token: &'input str = {
         eprintln!("matched token: ``{}''.", s);
         s
     },
+    <s:r#"'[ \t"a-zA-Z0-09~!@#$%^&*()-=_+\[\]{}|;:<>,./?]+'"#> => {
+        eprintln!("matched token: ``{}''.", s);
+        s
+    },
 };
 
 pub Term: Box<Term<'input>> = {
@@ -75,5 +79,3 @@ pub Expression: Box<Expression<'input>> = {
     "(" <c:Conjunction> ")" => Box::new(Expression::Conjunction(c)),
     "(" <c:Disjunction>  ")" => Box::new(Expression::Disjunction(c)),
 }
-
-

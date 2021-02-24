@@ -1,5 +1,12 @@
 mpdpopm News -- history of user-visible changes           -*- outline -*-
 
+* 0.2.0 build
+
+** User-visible changes
+
+*** `findadd' command
+
+mpdpopm now supports a `findadd' command; just like the MPD command by the same name, but this implementation includes terms for information managed by mpdpopm (so you can search for tracks with a rating > 3 stars, for instance).
 * 0.1.14 build
 
 ** User-visible changes
