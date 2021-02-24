@@ -1,6 +1,9 @@
 Thanks to tanshoku <https://github.com/tanshoku> for contributing
 the systemd unit.
 
+Thanks to m040601 <https://github.com/m040601> for his detailed
+feedback on the initial mpdpopm docs.
+
 Thanks to Vincent Petithory <vincent.petithory@gmail.com> for
 `mpdfav'. Thanks to Ali Polatel <alip@exherbo.org> for `mpdcron'.
 

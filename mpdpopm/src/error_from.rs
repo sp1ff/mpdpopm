@@ -14,8 +14,6 @@
 // see <http://www.gnu.org/licenses/>.
 
 /// Provide an implementation of std::convert::From for it's argument for type Error
-///
-/// I'm
 #[macro_export]
 macro_rules! error_from {
     ($t:ty) => {

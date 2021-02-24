@@ -56,6 +56,7 @@ use futures::{
     pin_mut, select,
     stream::{FuturesUnordered, StreamExt},
 };
+use libc::getpid;
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use snafu::{Backtrace, GenerateBacktrace, OptionExt, Snafu};
@@ -171,7 +172,8 @@ impl Default for Config {
 
 /// Core `mppopmd' logic
 pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
-    info!("mpdpopm {} beginning.", vars::VERSION);
+    let pid = unsafe { getpid() };
+    info!("mpdpopm {} beginning (PID {}).", vars::VERSION, pid);
 
     // We need the music directory to be convertible to string; check that first-off:
     let music_dir = cfg.local_music_dir.to_str().context(BadPath {

@@ -19,12 +19,12 @@
 //!
 //! # Introduction
 //!
-//! [`mppopmd`] is a companion daemon for [mpd](https://www.musicpd.org/) that maintains play counts
-//! & ratings. Similar to [mpdfav](https://github.com/vincent-petithory/mpdfav), but written in Rust
+//! `mppopmd` is a companion daemon for [mpd](https://www.musicpd.org/) that maintains play counts &
+//! ratings. Similar to [mpdfav](https://github.com/vincent-petithory/mpdfav), but written in Rust
 //! (which I prefer to Go), it will allow you to maintain that information in your tags, as well as
 //! the sticker database, by invoking external commands to keep your tags up-to-date (something
-//! along the lines of [mpdcron](https://alip.github.io/mpdcron)). [`mppopm`] is a command-line
-//! client for [`mppopmd`]. Run `mppopm --help` for detailed usage.
+//! along the lines of [mpdcron](https://alip.github.io/mpdcron)). `mppopm` is a command-line client
+//! for `mppopmd`. Run `mppopm --help` for detailed usage.
 
 use mpdpopm::{
     clients::{quote, Client, PlayerStatus},
@@ -53,7 +53,7 @@ use std::{fmt, path::PathBuf};
 // the case of an error, the stdlib will format the resulting error message using the Debug trait
 // which, when derived, is rather ugly. We'll implement it by hand below to produce something more
 // pleasant for human beings to read.
-/// [`mppopm`] errors
+/// `mppopm` errors
 #[derive(Snafu)]
 pub enum Error {
     #[snafu(display("{}", cause))]
@@ -141,10 +141,10 @@ type Result<T> = std::result::Result<T, Error>;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// [`mppopm`] configuration.
+/// `mppopm` configuration.
 ///
 /// I'm using a separate configuration file for the client to support system-wide daemon installs
-/// (in /usr/local, say) along with per-user client configurations (~/.mppopm, e.g.).
+/// (in `/usr/local`, say) along with per-user client configurations (`~/.mppopm`, e.g.).
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(default)]
 pub struct Config {

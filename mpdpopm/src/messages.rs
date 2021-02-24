@@ -28,20 +28,27 @@
 //!
 //! The following commands are built-in:
 //!
-//!    - ratings: "rate RATING( TRACK)?"
+//!    - set rating: "rate RATING( TRACK)?"
 //!    - set playcount: "setpc PC( TRACK)?"
-//!    - set lastplayed: "setlp TIMEESTAMP( TRACK)?"
+//!    - set lastplayed: "setlp TIMESTAMP( TRACK)?"
 //!
 //! There is no need to provide corresponding accessors since this functionality is already provided
 //! via "sticker get". Dedicated accessors could provide the same functionality with slightly more
 //! convenience since the sticker name would not have to be specified (as with "sticker get") & may
 //! be added at a later date.
 //!
-//! Additional commands may be added through the [generalized command](commands) feature.
+//! I'm expanding the MPD filter functionality to include attributes tracked by mpdpopm:
+//!
+//!    - findadd replacement: "findadd FILTER [sort TYPE] [window START:END]"
+//!      https://www.musicpd.org/doc/html/protocol.html#the-music-database
+//!
+//! Additional commands may be added through the
+//! [generalized commands](crate::commands#the-generalized-command-framework) feature.
 
 use crate::clients::{Client, IdleClient, PlayerStatus};
 use crate::commands::{GeneralizedCommand, PinnedTaggedCmdFuture};
 use crate::error_from;
+use crate::filters::ExpressionParser;
 use crate::playcounts::{set_last_played, set_play_count};
 use crate::ratings::{set_rating, RatedTrack, RatingRequest};
 
@@ -60,6 +67,8 @@ use std::path::PathBuf;
 pub enum Error {
     #[snafu(display("The path `{}' cannot be converted to a UTF-8 string", pth.display()))]
     BadPath { pth: PathBuf },
+    #[snafu(display("{}", msg))]
+    FilterParseError { msg: String },
     #[snafu(display("Invalid unquoted character in {}", c))]
     InvalidChar { c: u8 },
     #[snafu(display("Missing closing quotes"))]
@@ -108,9 +117,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// Break [`buf`] up into individual tokens while removing MPD-style quoting.
+/// Break `buf` up into individual tokens while removing MPD-style quoting.
 ///
-/// When a client sends a command to [`mpdpopm`], it will look like this on the wire:
+/// When a client sends a command to [mpdpopm](crate), it will look like this on the wire:
 ///
 /// sendmessage ${CHANNEL} "some-command \"with space\" simple \"'with single' and \\\\\""
 ///
@@ -379,10 +388,13 @@ where
             self.setpc(&msg[6..], client, state).await
         } else if msg.starts_with("setlp ") {
             self.setlp(&msg[6..], client, state).await
+        } else if msg.starts_with("findadd ") {
+            self.findadd(msg[8..].to_string(), client, state).await
         } else {
             self.maybe_handle_generalized_command(msg, state).await
         }
     }
+
     /// Handle rating message: "RATING( TRACK)?"
     async fn rate(
         &self,
@@ -419,6 +431,7 @@ where
         )
         .await?)
     }
+
     /// Handle `setpc': "PC( TRACK)?"
     async fn setpc(
         &self,
@@ -462,6 +475,7 @@ where
         )
         .await?)
     }
+
     /// Handle `setlp': "LASTPLAYED( TRACK)?"
     async fn setlp(
         &self,
@@ -491,6 +505,44 @@ where
             track.to_string()
         };
         set_last_played(client, self.lastplayed_sticker, &file, lp).await?;
+        Ok(None)
+    }
+
+    /// Handle `findadd': "FILTER [sort TYPE] [window START:END]"
+    async fn findadd(
+        &self,
+        msg: String,
+        _client: &mut Client,
+        _state: &PlayerStatus,
+    ) -> Result<Option<PinnedTaggedCmdFuture>> {
+        // Tokenize the message
+        let mut buf = msg.into_bytes();
+        let args: VecDeque<&str> = tokenize(&mut buf)
+            .map(|r| match r {
+                Ok(buf) => Ok(std::str::from_utf8(buf)?),
+                Err(err) => Err(err),
+            })
+            .collect::<Result<VecDeque<&str>>>()?;
+
+        debug!("findadd arguments: {:#?}", args);
+
+        // there should be 1, 3 or 5 arguments
+
+        // ExpressionParser's not terribly ergonomic: it returns a ParesError<L, T, E>; T is the
+        // offending token, which has the same lifetime as our input, which makes it tough to
+        // capture.  Nor is there a convenient way in which to treat all variants other than the
+        // Error Trait.
+        let ast = match ExpressionParser::new().parse(args[0]) {
+            Ok(ast) => ast,
+            Err(err) => {
+                return Err(Error::FilterParseError {
+                    msg: format!("{}", err),
+                });
+            }
+        };
+
+        debug!("ast: {:#?}", ast);
+
         Ok(None)
     }
 

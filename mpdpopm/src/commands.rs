@@ -17,11 +17,13 @@
 //!
 //! # Introduction
 //!
-//! [`mpdpopm`] allows for running arbitrary programs on the server in respone to server events
-//! or external commands (to keep ID3 tags up-to-date when a song is rated, for instance). This may
-//! seem like a vulnerability if your [`mpd`] server is listening on a socket, but it's not like
-//! callers can execute arbitrary code: certain events can trigger commands that you, the [`mpd`]
-//! server owner have configured.
+//! [mpdpopm](crate) allows for running arbitrary programs on the server in response to server
+//! events or external commands (to keep ID3 tags up-to-date when a song is rated, for
+//! instance). This may seem like a vulnerability if your [mpd] server is listening on a socket, but
+//! it's not like callers can execute arbitrary code: certain events can trigger commands that you,
+//! the [mpd] server owner have configured.
+//!
+//! [mpd]: https://www.musicpd.org/ "MPD"
 //!
 //! # The Generalized Command Framework
 //!
@@ -228,9 +230,9 @@ mod test_replacement_strings {
 pub type PinnedCmdFut =
     std::pin::Pin<Box<dyn Future<Output = tokio::io::Result<std::process::Output>>>>;
 
-/// Start process [`cmd`] with args [`I`] & return; the results will be available asynchronously
+/// Start process cmd with args I & return; the results will be available asynchronously
 ///
-/// If [`cmd`] is not an absolute path, `PATH` will be searched in an OS-defined way.
+/// If cmd is not an absolute path, `PATH` will be searched in an OS-defined way.
 pub fn spawn<S, I>(cmd: S, args: I, params: &HashMap<String, String>) -> Result<PinnedCmdFut>
 where
     I: Iterator<Item = String>,
@@ -390,7 +392,7 @@ impl GeneralizedCommand {
 
     /// Execute a general command
     ///
-    /// [`tokens`] shall be an iterator over the message tokens, beginning with the first token
+    /// `tokens` shall be an iterator over the message tokens, beginning with the first token
     /// *after* the command name
     pub fn execute<'a, I>(&self, tokens: I, state: &PlayerStatus) -> Result<PinnedTaggedCmdFuture>
     where

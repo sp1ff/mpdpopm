@@ -14,7 +14,13 @@
 	    2. addresses issue #4 by providing a systemd unit
 2020-12-26  Michael Herstine  <sp1ff@pobox.com>
 
-	First commit of the filter parser.
+	First commit of the filter parser. Contains just the grammar and some unit tests-- no externally-visible functionality.
+
+2021-02-24  Michael Herstine  <sp1ff@pobox.com>
+
+	Adding the `findadd' command.
+	This commit implements first support for extending MPD filters
+	to include items managed by mpdpopm.
 
 2020-12-19  Michael Herstine  <sp1ff@pobox.com>
 

@@ -201,8 +201,8 @@ pub async fn get_rating(client: &mut Client, sticker: &str, file: &str) -> Resul
 
 /// Core routine for setting the rating for a track-- will run the associated command, if present
 ///
-/// Set [`sticker`] on [`file`] to [`rating`]. Run [`cmd`] afterwards with arguments [`args`] if
-/// given. If no commands was specified return None. If so, return Some with a payload of a pinned
+/// Set `sticker` on `file` to `rating`. Run `cmd` afterwards with arguments `args` if given. If no
+/// commands was specified return None. If so, return Some with a payload of a pinned
 /// TaggedCommandFuture representing the eventual results of that command.
 pub async fn set_rating<I: Iterator<Item = String>>(
     client: &mut Client,
