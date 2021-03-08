@@ -54,7 +54,7 @@ assets = [
        ["target/release/mppopm", "usr/local/bin/", "755"],
        ["target/release/mppopmd", "usr/local/bin/", "755"],
        ["README.md", "usr/local/share/doc/mpdpopm/README", "644"],
+       ["mppopmd.conf", "/usr/local/share/doc/mpdpopm/examples/mppopmd.conf", "644"],
+       ["mppopmd.service", "/usr/local/lib/systemd/user/mppopmd.service", "644"],
+       ["mppopmd.service", "/usr/local/lib/systemd/system/mppopmd.service", "644"],
 ]
-
-[package.metadata.arch]
-arch = ["x86_64"]

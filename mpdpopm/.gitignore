@@ -5,3 +5,8 @@ Cargo.lock
 Cargo.toml
 rusty-tags.emacs
 README.md
+mppopmd.conf
+mppopmd.conf.am
+mppopmd.service
+mppopmd.service.am
+

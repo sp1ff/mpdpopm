@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+
+# This script will bindmount the host mpdpopm project directory and
+# invoke `cargo arch|aur' so as to make an Arch package.  It's meant
+# for use during mpdpopm development, as a check that my latest
+# changes won't break anything at release-time when it's time to
+# package the latest mpdpopm.
+
+# It is presumably run from the root mpdpopm directory.
+
+set -ex
+docker build -t mpdpopm-arch:latest -f admin/Dockerfile-arch .
+
+here=$(pwd)
+script=${here}/admin/build-dev-arch-pkg-cnt
+pkgbuild=${here}/PKGBUILD
+tarball=${here}/$1
+
+docker_args="-it"
+docker_args="$docker_args -v ${script}:/build-dev-pkg:ro"
+docker_args="$docker_args -v ${tarball}:/$1:ro"
+docker_args="$docker_args -v ${pkgbuild}:/PKGBUILD"
+docker_args="$docker_args --mount type=bind,source=${here},target=/mpdpopm"
+docker_args="$docker_args --privileged"
+docker_args="$docker_args --ulimit core=-1"
+docker_args="$docker_args -u mgh"
+# Un-comment to just drop into the container & experiment
+cmd="docker run ${docker_args} mpdpopm-arch:latest"
+# cmd="docker run ${docker_args} scribbu-arch:latest /build-dev-pkg $1"
+exec $cmd

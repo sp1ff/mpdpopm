@@ -1,0 +1,11 @@
+#!/bin/bash
+
+set -ex
+base="$(basename $1 .tar.gz)"
+version="${base:8}"
+cp -v /$1 /tmp
+cp -v /PKGBUILD /tmp
+cd /tmp
+makepkg -g >> PKGBUILD
+makepkg
+cp -v mpdpopm-${version}-1-x86_64.pkg.tar.zst /mpdpopm

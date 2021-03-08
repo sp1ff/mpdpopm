@@ -9,7 +9,7 @@ cargo_verbose_ = $(cargo_verbose_$(AM_DEFAULT_VERBOSITY))
 cargo_verbose_0 =
 cargo_verbose_1 = --verbose
 
-EXTRA_DIST = Cargo.lock
+EXTRA_DIST = Cargo.lock $(builddir)/mppopmd.conf $(builddir)/mppopmd.service
 bin_PROGRAMS = mppopmd mppopm
 
 # `vars.rs.am.in` contains Installation Directory Variables
@@ -24,7 +24,15 @@ bin_PROGRAMS = mppopmd mppopm
 $(builddir)/src/flapdoodle.rs: $(builddir)/src/vars.rs.am
 	sed -e "s|\$${prefix}|$(prefix)|g" $< > $@
 
-CLEANFILES = $(builddir)/src/flapdoodle.rs
+$(builddir)/mppopmd.conf: $(builddir)/mppopmd.conf.am
+	sed -e "s|\$${prefix}|$(prefix)|g" $< > $@
+
+$(builddir)/mppopmd.service: $(builddir)/mppopmd.service.am
+	sed -e "s|\$${prefix}|$(prefix)|g" $< > $@.$$$$ && \
+	sed -e "s|\$${exec_prefix}|$(prefix)|g" $@.$$$$ > $@  && \
+	rm $@.$$$$
+
+CLEANFILES = $(builddir)/src/flapdoodle.rs $(builddir)/mppopmd.conf $(builddir)/mppopmd.service
 
 DISTCLEANFILES = $(builddir)/Cargo.toml 
 
@@ -36,7 +44,7 @@ common_sources = clients.rs	\
 		 playcounts.rs	\
 		 ratings.rs
 
-mppopmd_SOURCES = $(srcdir)/Cargo.toml $(common_sources:%=src/%) src/bin/mppopmd.rs
+mppopmd_SOURCES = $(srcdir)/Cargo.toml $(common_sources:%=src/%) src/bin/mppopmd.rs $(builddir)/mppopmd.conf $(builddir)/mppopmd.service
 
 mppopm_SOURCES = $(srcdir)/Cargo.toml $(common_sources:%=src/%) src/bin/mppopm.rs
 
@@ -52,6 +60,7 @@ $(srcdir)/src/vars.rs: $(builddir)/src/flapdoodle.rs
 dist-hook:
 	cp -v Cargo.toml $(distdir)/mpdpopm
 	cp -v src/flapdoodle.rs $(distdir)/src/vars.rs
+	cp -v mppopmd.{conf,service} $(disdir)
 
 mppopmd$(EXEEXT): $(mppopmd_SOURCES) $(srcdir)/Cargo.toml $(srcdir)/src/vars.rs
 	cd $(top_srcdir)/mpdpopm && \
@@ -73,3 +82,15 @@ install-exec-local: mppopmd$(EXEEXT) mppopm$(EXEEXT)
 	install -d $(DESTDIR)$(bindir)
 	install -m 755 @abs_top_builddir@/mpdpopm/target/$(RUST_TARGET_SUBDIR)/mppopmd $(DESTDIR)$(bindir)/mppopmd
 	install -m 755 @abs_top_builddir@/mpdpopm/target/$(RUST_TARGET_SUBDIR)/mppopm $(DESTDIR)$(bindir)/mppopm
+	install -d $(DESTDIR)$(docdir)/examples
+	install -m 644 @abs_top_builddir@/mpdpopm/mppopmd.conf $(DESTDIR)$(docdir)/examples/mppopmd.conf
+	install -d $(DESTDIR)$(libdir)/systemd/system
+	install -m 644 @abs_top_builddir@/mpdpopm/mppopmd.service $(DESTDIR)$(libdir)/systemd/system/mppopmd.service
+	install -d $(DESTDIR)$(libdir)/systemd/user
+	install -m 644 @abs_top_builddir@/mpdpopm/mppopmd.service $(DESTDIR)$(libdir)/systemd/user/mppopmd.service
+
+uninstall-local:
+	rm -f $(DESTDIR)$(libdir)/systemd/user/mppopmd.service
+	rm -f $(DESTDIR)$(libdir)/systemd/system/mppopmd.service
+	rm -f $(DESTDIR)$(docdir)/examples/mppopmd.conf
+	rmdir $(DESTDIR)$(docdir)/examples

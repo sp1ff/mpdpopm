@@ -1,0 +1,32 @@
+# Docker image for building, debugging & packaging     -*- mode: dockerfile -*-
+FROM debian:stable-slim AS base
+
+ARG DEBIAN_FRONTEND
+ENV DEBIAN_FRONTEND=${DEBIAN_FRONTEND:-noninteractive}
+
+RUN set -ex && \
+	apt-get update && \
+	apt-get install -y --no-install-recommends \
+	# mpdpopm pre-requisistes \
+	rustc cargo locales \
+        # for my sanity \
+	less procps gdb sudo info vim && \
+        # tidy-up \
+	apt-get clean && \
+	rm -rf /tmp/* /var/tmp/* && \
+        # set the timezone to civilization (i.e. the Pacific) \
+	ln -fs /usr/share/zoneinfo/US/Pacific /etc/localtime && dpkg-reconfigure -f noninteractive tzdata && \
+	# Setup the en_US.UTF-8 locale \
+        cp -v /etc/locale.gen /etc/locale.gen.orig && \
+	sed 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen >> /tmp/locale.gen.$$ && \
+        mv -v /tmp/locale.gen.$$ /etc/locale.gen && \
+	locale-gen en_US.UTF-8 && \
+	update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 && \
+	# re-include the doc directories \
+	mkdir /usr/share/man/man1 && \
+	echo "path-include /usr/share/doc/scribbu" >> /etc/dpkg/dpkg.cfg.d/docker && \
+	echo "path-include /usr/share/man/man1/scribbu*" >> /etc/dpkg/dpkg.cfg.d/docker && \
+	echo "path-include /usr/share/info/scribbu.info" >> /etc/dpkg/dpkg.cfg.d/docker
+
+# The test suite won't work if this isn't set:
+ENV LANG="en_US.UTF-8"

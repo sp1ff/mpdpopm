@@ -1,5 +1,12 @@
 mpdpopm News -- history of user-visible changes           -*- outline -*-
 
+* 0.1.15 build
+
+** User-visible changes
+
+*** Include sample configuration & systemd unit files
+
+*** Begin providing an Arch package
 * 0.1.14 build
 
 ** User-visible changes

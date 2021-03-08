@@ -1,0 +1,13 @@
+# MPPOPMD SYSTEMD UNIT
+# You will likely need to edit this to suit your particular installation.
+[Unit]
+Description=mpdpopm ratings and playcounts for MPD
+Requires=mpd.service
+After=mpd.service
+
+[Service]
+Restart=on-failure
+ExecStart=@bindir@/mppopmd -F
+
+[Install]
+WantedBy=default.target

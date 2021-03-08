@@ -1,0 +1,14 @@
+;; SAMPLE MPPOPMD CONFIGURATION FILE    -*- mode: lisp; -*-
+;; You will need to edit this to suit your particular installation.
+;; In particular, examine the `log' & `local_music_dir' values since those
+;; are difficult to guess. Also check the `host' & `port' settings.
+((log . "@datadir@/log/mppopmd.log")
+ (host . "localhost")
+ (port . 6600)
+ (local_music_dir . "@prefix@/Music")
+ (playcount_sticker . "unwoundstack.com:playcount")
+ (lastplayed_sticker . "unwoundstack.com:lastplayed")
+ (played_thresh . 0.6)
+ (poll_interval_ms . 5000)
+ (commands_chan . "unwoundstack.com:commands")
+ (rating_sticker . "unwoundstack.com:rating"))

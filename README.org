@@ -2,7 +2,7 @@
 #+AUTHOR: Michael Herstine
 #+DESCRIPTION: mpdpopm
 #+EMAIL: sp1ff@pobox.com
-#+DATE: <2020-12-16 Wed 19:36>
+#+DATE: <2021-03-05 Fri 17:22>
 #+AUTODATE: t
 
 * Introduction
@@ -172,23 +172,24 @@ The format is a LISP S-expression in which individual, top-level items are expre
 
 Entries:
 
-  - log :: file to which the daemon will log when running in the background (if you specify the =-F= flag, to run it in the foreground, it will log to =stdout=); no log rotation is provided, so either setup =logrotate= or keep an eye on it so it doesn't grow too large.
+  - log :: file to which the daemon will log when running in the background (if you specify the =-F= flag, to run it in the foreground, it will log to =stdout=); no log rotation is provided, so either setup =logrotate= or keep an eye on it so it doesn't grow too large. If not provided, will default to =$LOCALSTATEDIR/log/mppopmd.log=, where =$LOCALSTATEDIR= is =${prefix}/var= if you installed with Autotools, or just =/usr/local= otherwise.
   - host :: IP address on which the MPD daemon is listening (should match =bind_to_address= in your =mpd= configuration file); defaults to "localhost"
   - port :: port on which the =mpd= daemon is listening (should match =port= in your =mpd= configuration file); defaults to 6600
-  - local_music_dir :: the root of your MPD music directory, as seen from this host
+  - local_music_dir :: the root of your MPD music directory, as seen from this host. Defaults to =${prefix}/Music= if you installed with Autotools, or just =/usr/local/Music= otherwise. This is only used when invoking commands (associated with playcounts, ratings &c, or just generalized commands) when they use the %full-file parameter. Therefore, if the music directory isn't available from the host on which you are running =mppopmd= this can be left defaulted, but those features will be unavailable.
   - playcount_sticker :: the sticker name mpdpopm will use to store play counts (defaults to "unwoundstack.com:playcount")
   - lastplayed_sticker :: the sticker name mpdpopm will use to store the last played timestamp (defaults to "unwoundstack.com:lastplayed")
   - rating_sticker :: the sticker name mpdpopm will use to store the rating (defaults to "unwoundstack.com:rating")
   - played_thresh :: the percentage of a song's duration that must be played back in order for it to be considered as "played", expressed as number between 0 & 1 (defaults to 0.6)
-  - poll_interval_ms :: the amount of time, in milliseconds, between polls of =mpd= by =mppopmd= to check on playback progress
+  - poll_interval_ms :: the amount of time, in milliseconds, between polls of =mpd= by =mppopmd= to check on playback progress. Defaults to 5000 (i.e. five seconds).
   - commands_chan :: name of the MPD channel on which =mppopmd= shall listen for commands ("unwoundstack.com:commands" by default)
-  - playcount_command :: optional name of a program to run when the play count is incremented; this should be an absolute path. use playcount_command_args to specify arguments to this command
-  - playcount_command_args :: an array of arguments to specify to the playcount command; arguments may contain replacement parameters that will be filled in at the time of execution (on which more below)
-  - ratings :: optional name of a program to run when the rating is set; this should be an absolute path. use rating to specify arguments to this command
-  - ratings_command_args :: an array of arguments to specify to the ratings command; arguments may contain replacement parameters that will be filled in at the time of execution (on which more below)
+  - playcount_command :: optional name of a program to run when the play count is incremented; this should be an absolute path. use playcount_command_args to specify arguments to this command. Defaults to none.
+  - playcount_command_args :: an array of arguments to specify to the playcount command; arguments may contain replacement parameters that will be filled in at the time of execution (on which more below)-- defaults to none.
+  - ratings_command :: optional name of a program to run when the rating is set; this should be an absolute path. use rating to specify arguments to this command; defaults to none.
+  - ratings_command_args :: an array of arguments to specify to the ratings command; arguments may contain replacement parameters that will be filled in at the time of execution (on which more below); defaults to none.
 
 There is an additional configuration parameter not documented here: =gen_cmds=. That is described below.
 
+Finally, depending on how you installed =mpdpopm=, you may have a sample configuration file already. The Autotools distributions will install the sample to =$(docdir)/examples= (where =$(docdir)= is =${prefix}/share/doc/mpdpopm= by default). The Debian package installs it to =/usr/local/share/doc/mpdpopm/examples=. The pre-built binaries include it in the =doc= folder.
 **** Starting the Daemon
 
 Once you've got your configuration file prepared, you should probably start the daemon in the foreground for ease of trouble-shooting. I suggest starting it with the =-v= flag ("verbose") the first time, as well (there's also a =-d= flag which will produce more copious debug output). You should expect to see something like this:
@@ -244,6 +245,7 @@ In this example, =mppopmd= noticed that "Boplicity" by Miles Davis started playi
 
 Once things seem to be working, you might consider removing the =-F= flag & running =mppopmd= as a proper daemon.
 
+[[https://github.com/tanshoku][tanshoku]] was kind enough to contribute a systemd unit for this purpose. At present, the build does not install it, but provides it as an example and leaves it to the user to install should they desire (and after they have edited it to suit their configuration). You can find it in =${prefix}/share/mpdpopm/examples= for the Autotools distribution, =/usr/local/share/mpdpopm/examples= for the Debian package, and in the =doc= folder for the pre-built binaries.
 *** mppopm
 
 At this point, [[https://github.com/sp1ff/mpdpopm][mpdpopm]] will happily monitor your playback history & keep play counts & last played timestamps for you. If you would like to rate tracks, however, you will need to somehow induce your favorite mpd client to send a "rating" message to the [[https://github.com/sp1ff/mpdpopm][mpdpopm]] commands channel ("unwoundstack.com:commands" by default). Since this is unlikely to be convenient, I wrote an mpd client for the purpose: a little CLI called =mppopm=. You can simply execute

@@ -1,4 +1,4 @@
-AC_INIT([mpdpopm], [0.1.14], [sp1ff@pobox.com], [mpdpopm], [https://github.com/sp1ff/mpdpopm])
+AC_INIT([mpdpopm], [0.1.15], [sp1ff@pobox.com], [mpdpopm], [https://github.com/sp1ff/mpdpopm])
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_SRCDIR([mpdpopm/Cargo.toml.in])
 AM_INIT_AUTOMAKE([-Wall -Werror -Wno-portability -Wno-override gnits std-options dist-bzip2 dist-xz])
@@ -20,7 +20,12 @@ dnl location at make-time.
 dnl
 dnl I handle this by having Autconf process vars.rs.am.in to vars.rs.am at configure time, and
 dnl adding a rule to Automake to build vars.rs from vars.rs.am at make-time.
+dnl
+dnl Ditto for etc/mppopmd.conf.am.in and etc/mppopmd.service.am.in
 AC_CONFIG_FILES([mpdpopm/src/vars.rs.am])
+AC_CONFIG_FILES([mpdpopm/mppopmd.conf.am:etc/mppopmd.conf.am.in])
+AC_CONFIG_FILES([mpdpopm/mppopmd.service.am:etc/mppopmd.service.am.in])
+AC_CONFIG_FILES([PKGBUILD:admin/PKGBUILD.in])
 AC_CONFIG_FILES([Makefile mpdpopm/Makefile mpdpopm/Cargo.toml])
 
 dnl Specify --enable-debug to make a development release.  By default,

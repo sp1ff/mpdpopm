@@ -1,4 +1,19 @@
-2020-12-16  Michael Herstine  <sp1ff@pobox.com>
+2021-03-08  Michael Herstine  <sp1ff@pobox.com>
+
+	Clear-up some packaging issues.
+	This commit:
+
+	    1. addresses issue #3 by providing an Arch package with
+	       releases
+	    2. addresses issue #4 by providing a systemd unit
+
+2020-12-19  Michael Herstine  <sp1ff@pobox.com>
+
+	Commenting out the hard-coded release number in release.yml.
+
+2020-12-17  Michael Herstine  <sp1ff@pobox.com>
+
+	Fixing-up release workflow
 
 	Address issue #2.
 	This commit contains no new code or features; rather it is a
