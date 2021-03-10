@@ -32,7 +32,7 @@ tokio = { version = "0.2.22", features = ["dns", "io-util", "macros", "process",
 
 [package.metadata.deb]
 maintainer = "@PACKAGE_AUTHOR@"
-copyright = "Copyright (C) 2020 @PACKAGE_AUTHOR@"
+copyright = "Copyright (C) 2020-2021 @PACKAGE_AUTHOR@"
 extended-description = """
 mpdpopm provides a companion daemon to mpd <https://www.musicpd.org>/ \
 for maintaining play counts, ratings and last-played timestamps, \

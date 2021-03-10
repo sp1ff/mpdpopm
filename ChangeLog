@@ -1,4 +1,10 @@
-2021-03-08  Michael Herstine  <sp1ff@pobox.com>
+2021-03-10  Michael Herstine  <sp1ff@pobox.com>
+
+	Boilerplate update.
+	This commit updates copyright statements throughout, as well
+	as a few typos.
+
+2021-03-09  Michael Herstine  <sp1ff@pobox.com>
 
 	Clear-up some packaging issues.
 	This commit:

@@ -208,7 +208,7 @@ jobs:
       if: matrix.os == 'ubuntu-18.04'
       shell: bash
       # You would think I can deduce the name of the package from
-      # RELEASE_VERSION, but Debian uses different designatures for
+      # RELEASE_VERSION, but Debian uses different designators for
       # architecture (amd64 instead of x86_64, e.g.) than those
       # produced by `uname'. Since there will only be one .deb in the
       # output directory, I'll just figure it out that way.
