@@ -138,11 +138,6 @@ jobs:
         echo "DISTRO_BZ2=mpdpopm-${{ env.RELEASE_VERSION }}.tar.bz2" >> $GITHUB_ENV
         echo "DISTRO_GZ=mpdpopm-${{ env.RELEASE_VERSION }}.tar.gz" >> $GITHUB_ENV
         echo "DISTRO_XZ=mpdpopm-${{ env.RELEASE_VERSION }}.tar.xz" >> $GITHUB_ENV
-        echo "====>"
-        pwd
-        ls
-        echo "====>"
-        ls mpdpopm
 
     - name: Strip release binary (linux and macos)
       if: matrix.build == 'linux' || matrix.build == 'macos'
@@ -157,15 +152,11 @@ jobs:
       run: |
         set -x
         pwd
-        echo "====>"
-        ls
-        echo "====>"
         ls mpdpopm
-        echo "====>"
         staging="mpdpopm-${{ env.RELEASE_VERSION }}-${{ matrix.target }}"
         mkdir -p "$staging"/{bin,doc}
         cp -v {README.org,AUTHORS,ChangeLog,COPYING,NEWS,THANKS} "$staging/doc/"
-        cp -v mpdpopm/mpdpopm.{conf,service} "$staging/doc/"
+        cp -v mpdpopm/mppopmd.{conf,service} "$staging/doc/"
         cp -v mpdpopm/target/release/mppopm{,d} "$staging/bin"
         tar czf "$staging.tar.gz" "$staging"
         echo "ASSET=$staging.tar.gz" >> $GITHUB_ENV
