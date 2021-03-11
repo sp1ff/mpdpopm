@@ -11,8 +11,9 @@ on:
   # release-infra *or* it has a tag of n.n.n)
   push:
     # Un-comment this for testing
-    # branches:
-    #   - release-infra
+    branches:
+      - master
+      # - release-infra
     tags:
       - '[0-9]+.[0-9]+.[0-9]+'
 
@@ -22,8 +23,8 @@ jobs:
     name: create-release
     runs-on: ubuntu-latest
     # Un-comment this for testing
-    # env:
-    #   RELEASE_VERSION: 0.1.14
+    env:
+      RELEASE_VERSION: 0.1.15
     #   RELEASE_VERSION: 0.0.1
     steps:
       - name: Create artifacts directory
@@ -84,20 +85,18 @@ jobs:
       if: matrix.os == 'ubuntu-18.04'
       shell: bash
       run: |
-          pwd
           set -x
+          pwd
           sudo apt-get install -y autoconf automake emacs liblzma-dev
-          set +x
 
     - name: Install Tools (macOS)
       if: matrix.os == 'macos-10.15'
       shell: bash
       run: |
-          pwd
           set -x
+          pwd
           brew update
           brew install autoconf automake emacs
-          set +x
 
     - name: Install Rust
       uses: actions-rs/toolchain@v1
@@ -116,7 +115,6 @@ jobs:
       run: |
         set -x
         ./bootstrap && ./configure
-        set +x
 
     - name: Get release download URL
       uses: actions/download-artifact@v1
@@ -140,6 +138,11 @@ jobs:
         echo "DISTRO_BZ2=mpdpopm-${{ env.RELEASE_VERSION }}.tar.bz2" >> $GITHUB_ENV
         echo "DISTRO_GZ=mpdpopm-${{ env.RELEASE_VERSION }}.tar.gz" >> $GITHUB_ENV
         echo "DISTRO_XZ=mpdpopm-${{ env.RELEASE_VERSION }}.tar.xz" >> $GITHUB_ENV
+        echo "====>"
+        pwd
+        ls
+        echo "====>"
+        ls mpdpopm
 
     - name: Strip release binary (linux and macos)
       if: matrix.build == 'linux' || matrix.build == 'macos'
@@ -153,6 +156,12 @@ jobs:
       shell: bash
       run: |
         set -x
+        pwd
+        echo "====>"
+        ls
+        echo "====>"
+        ls mpdpopm
+        echo "====>"
         staging="mpdpopm-${{ env.RELEASE_VERSION }}-${{ matrix.target }}"
         mkdir -p "$staging"/{bin,doc}
         cp -v {README.org,AUTHORS,ChangeLog,COPYING,NEWS,THANKS} "$staging/doc/"
