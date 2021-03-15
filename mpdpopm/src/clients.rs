@@ -64,6 +64,13 @@ pub enum Error {
         #[snafu(backtrace(true))]
         back: Backtrace,
     },
+    /// Error adding a URI
+    #[snafu(display("Failed to add URI: `{}'", text))]
+    Add {
+        text: String,
+        #[snafu(backtrace(true))]
+        back: Backtrace,
+    },
     /// Error upon connecting to the mpd server; includes the text returned (if any)
     #[snafu(display("Failed to connect to the mpd server: `{}'", text))]
     Connect {
@@ -71,9 +78,30 @@ pub enum Error {
         #[snafu(backtrace(true))]
         back: Backtrace,
     },
+    /// Error in response to find1 or find2
+    #[snafu(display("Search failed: {}", text))]
+    Find {
+        text: String,
+        #[snafu(backtrace(true))]
+        back: Backtrace,
+    },
+    /// Error in response to get_all_songs
+    #[snafu(display("Failed to fetch all song URIs: {}", text))]
+    GetAllSongs {
+        text: String,
+        #[snafu(backtrace(true))]
+        back: Backtrace,
+    },
     /// Error in respone to "readmessages"
     #[snafu(display("Failed to read messages: `{}'", text))]
     GetMessages {
+        text: String,
+        #[snafu(backtrace(true))]
+        back: Backtrace,
+    },
+    /// Error in response to "sticker find"
+    #[snafu(display("Failed to find stickers: `{}'", text))]
+    GetStickers {
         text: String,
         #[snafu(backtrace(true))]
         back: Backtrace,
@@ -725,6 +753,170 @@ impl Client {
                 })
                 .collect::<Vec<String>>())
         }
+    }
+
+    /// Process a search (either find or search) response
+    fn search_rsp_to_uris(&self, text: &str) -> Result<std::vec::Vec<String>> {
+        // We expect a response of the form:
+        // file: P/Pogues, The - A Pistol For Paddy Garcia.mp3
+        // Last-Modified: 2007-12-26T19:18:00Z
+        // Format: 44100:24:2
+        // ...
+        // file: P/Pogues, The - Billy's Bones.mp3
+        // ...
+        // OK
+        //
+        // or
+        //
+        // ACK...
+        if text.starts_with("ACK") {
+            Err(Error::Find {
+                text: text.to_string(),
+                back: Backtrace::generate(),
+            })
+        } else {
+            Ok(text
+                .lines()
+                .filter_map(|x| {
+                    if x.starts_with("file: ") {
+                        Some(String::from(&x[6..]))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<String>>())
+        }
+    }
+
+    /// Search the database for songs matching filter (unary operator)
+    ///
+    /// Set `case` to true to request a case-sensitive search (false yields case-insensitive)
+    pub async fn find1(
+        &mut self,
+        cond: &str,
+        val: &str,
+        case: bool,
+    ) -> Result<std::vec::Vec<String>> {
+        let cmd = format!(
+            "{} {}",
+            if case { "find" } else { "search" },
+            quote(&format!("({} {})", cond, val))
+        );
+        let text = self.stream.req(&cmd).await?;
+        self.search_rsp_to_uris(&text)
+    }
+
+    /// Search the database for songs matching filter (case-sensitive, binary operator)
+    ///
+    /// Set `case` to true to request a case-sensitive search (false yields case-insensitive)
+    pub async fn find2(
+        &mut self,
+        attr: &str,
+        op: &str,
+        val: &str,
+        case: bool,
+    ) -> Result<std::vec::Vec<String>> {
+        let cmd = format!(
+            "{} {}",
+            if case { "find" } else { "search" },
+            quote(&format!("({} {} {})", attr, op, val))
+        );
+        let text = self.stream.req(&cmd).await?;
+        self.search_rsp_to_uris(&text)
+    }
+
+    /// Retrieve all instances of a given sticker under the music directory
+    ///
+    /// Return a mapping from song URI to textual sticker value
+    pub async fn get_stickers(&mut self, sticker: &str) -> Result<HashMap<String, String>> {
+        let text = self
+            .stream
+            .req(&format!("sticker find song \"\" {}", sticker))
+            .await?;
+
+        // We expect a response of the form:
+        //
+        // file: U-Z/Zafari - Addis Adaba.mp3
+        // sticker: unwoundstack.com:rating=64
+        // ...
+        // file: U-Z/Zero 7 - In Time (Album Version).mp3
+        // sticker: unwoundstack.com:rating=255
+        // OK
+        //
+        // or
+        //
+        // ACK ...
+
+        if text.starts_with("ACK") {
+            Err(Error::GetStickers {
+                text: text.to_string(),
+                back: Backtrace::generate(),
+            })
+        } else {
+            let mut m = HashMap::new();
+            let mut lines = text.lines();
+            loop {
+                let file = lines.next().context(GetStickers { text: text.clone() })?;
+                if "OK" == file {
+                    break;
+                }
+                let val = lines.next().context(GetStickers { text: text.clone() })?;
+                m.insert(
+                    String::from(&file[6..]),
+                    String::from(&val[10 + sticker.len()..]),
+                );
+            }
+            Ok(m)
+        }
+    }
+
+    /// Retrieve the song URIs of all songs in the database
+    ///
+    /// Returns a vector of String
+    pub async fn get_all_songs(&mut self) -> Result<std::vec::Vec<String>> {
+        let text = self.stream.req("find \"(base '')\"").await?;
+        // We expect a response of the form:
+        // file: 0-A/A Positive Life - Lighten Up!.mp3
+        // Last-Modified: 2020-11-18T22:47:07Z
+        // Format: 44100:24:2
+        // Time: 399
+        // duration: 398.550
+        // Artist: A Positive Life
+        // Title: Lighten Up!
+        // Genre: Electronic
+        // file: 0-A/A Positive Life - Pleidean Communication.mp3
+        // ...
+        // OK
+        //
+        // or "ACK..."
+        if text.starts_with("ACK") {
+            Err(Error::GetAllSongs {
+                text: text.to_string(),
+                back: Backtrace::generate(),
+            })
+        } else {
+            Ok(text
+                .lines()
+                .filter_map(|x| {
+                    if x.starts_with("file: ") {
+                        Some(String::from(&x[6..]))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<String>>())
+        }
+    }
+
+    pub async fn add(&mut self, uri: &str) -> Result<()> {
+        let msg = format!("add {}", quote(uri));
+        let text = self.stream.req(&msg).await?;
+        debug!("Sent `{}'; got `{}'.", &msg, &text);
+
+        text.starts_with("OK").as_option().context(Add {
+            text: text.to_string(),
+        })?;
+        Ok(())
     }
 }
 

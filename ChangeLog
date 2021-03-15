@@ -1,4 +1,9 @@
-2021-03-10  Michael Herstine  <sp1ff@pobox.com>
+2021-03-14  Michael Herstine  <sp1ff@pobox.com>
+
+	First commit of filter evaluation logic.
+	Amend me!
+
+2021-03-03  Michael Herstine  <sp1ff@pobox.com>
 
 	Boilerplate update.
 	This commit updates copyright statements throughout, as well

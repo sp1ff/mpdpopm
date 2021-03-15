@@ -49,6 +49,7 @@ use crate::clients::{Client, IdleClient, PlayerStatus};
 use crate::commands::{GeneralizedCommand, PinnedTaggedCmdFuture};
 use crate::error_from;
 use crate::filters::ExpressionParser;
+use crate::filters_ast::{evaluate, FilterStickerNames};
 use crate::playcounts::{set_last_played, set_play_count};
 use crate::ratings::{set_rating, RatedTrack, RatingRequest};
 
@@ -108,6 +109,7 @@ consider filing a report to sp1ff@pobox.com",
 
 error_from!(crate::clients::Error);
 error_from!(crate::commands::Error);
+error_from!(crate::filters_ast::Error);
 error_from!(crate::playcounts::Error);
 error_from!(crate::ratings::Error);
 error_from!(std::num::ParseIntError);
@@ -350,13 +352,14 @@ where
     }
 
     /// Read messages off the commands channel & dispatch 'em
-    pub async fn check_messages<E>(
+    pub async fn check_messages<'a, E>(
         &self,
         client: &mut Client,
         idle_client: &mut IdleClient,
         state: PlayerStatus,
         command_chan: &str,
         cmds: &mut E,
+        stickers: &FilterStickerNames<'a>,
     ) -> Result<()>
     where
         E: Extend<PinnedTaggedCmdFuture>,
@@ -368,7 +371,7 @@ where
                 chan: String::from(chan),
             })?;
             for msg in msgs {
-                cmds.extend(self.process(msg, client, &state).await?);
+                cmds.extend(self.process(msg, client, &state, stickers).await?);
             }
         }
 
@@ -376,11 +379,12 @@ where
     }
 
     /// Process a single command
-    pub async fn process(
+    pub async fn process<'a>(
         &self,
         msg: String,
         client: &mut Client,
         state: &PlayerStatus,
+        stickers: &FilterStickerNames<'a>,
     ) -> Result<Option<PinnedTaggedCmdFuture>> {
         if msg.starts_with("rate ") {
             self.rate(&msg[5..], client, state).await
@@ -389,7 +393,8 @@ where
         } else if msg.starts_with("setlp ") {
             self.setlp(&msg[6..], client, state).await
         } else if msg.starts_with("findadd ") {
-            self.findadd(msg[8..].to_string(), client, state).await
+            self.findadd(msg[8..].to_string(), client, stickers, state)
+                .await
         } else {
             self.maybe_handle_generalized_command(msg, state).await
         }
@@ -509,10 +514,11 @@ where
     }
 
     /// Handle `findadd': "FILTER [sort TYPE] [window START:END]"
-    async fn findadd(
+    async fn findadd<'a>(
         &self,
         msg: String,
-        _client: &mut Client,
+        client: &mut Client,
+        stickers: &FilterStickerNames<'a>,
         _state: &PlayerStatus,
     ) -> Result<Option<PinnedTaggedCmdFuture>> {
         // Tokenize the message
@@ -543,7 +549,17 @@ where
 
         debug!("ast: {:#?}", ast);
 
-        Ok(None)
+        let mut results = Vec::new();
+        for song in evaluate(&ast, false, client, stickers).await? {
+            results.push(client.add(&song).await);
+        }
+        match results
+            .into_iter()
+            .collect::<std::result::Result<Vec<()>, crate::clients::Error>>()
+        {
+            Ok(_) => Ok(None),
+            Err(err) => Err(Error::from(err)),
+        }
     }
 
     /// Handle generalized commands

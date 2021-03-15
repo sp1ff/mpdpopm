@@ -47,6 +47,7 @@ lalrpop_mod!(pub filters); // synthesized by LALRPOP
 
 use clients::{Client, IdleClient, IdleSubSystem};
 use commands::{FormalParameter, GeneralizedCommand, TaggedCommandFuture, Update};
+use filters_ast::FilterStickerNames;
 use messages::MessageProcessor;
 use playcounts::PlayState;
 use vars::{LOCALSTATEDIR, PREFIX};
@@ -179,6 +180,12 @@ pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
     let music_dir = cfg.local_music_dir.to_str().context(BadPath {
         pth: cfg.local_music_dir.clone(),
     })?;
+
+    let filter_stickers = FilterStickerNames::new(
+        &cfg.rating_sticker,
+        &cfg.playcount_sticker,
+        &cfg.lastplayed_sticker,
+    );
 
     let mut client = Client::connect(format!("{}:{}", cfg.host, cfg.port)).await?;
 
@@ -322,6 +329,7 @@ pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
                     state.last_status(),
                     &cfg.commands_chan,
                     &mut cmds,
+                    &filter_stickers,
                 )
                 .await
             {
