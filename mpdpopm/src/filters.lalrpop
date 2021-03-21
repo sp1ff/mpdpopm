@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License along with mpdpopm.  If not,
 // see <http://www.gnu.org/licenses/>.
 
-use crate::filters_ast::{Conjunction, Disjunction, Expression, OpCode, Term}; 
+use crate::filters_ast::{Conjunction, Disjunction, Expression, OpCode, Selector, Term}; 
 
 grammar;
 
@@ -29,53 +29,99 @@ pub ExprOp: OpCode = {
     "<="       => OpCode::LessThanEqual,
 };
 
-// TODO(sp1ff): Needs clean-up
+pub ExprSel: Selector = {
+    r"(?i)artist"                     => Selector::Artist,
+    r"(?i)album"                      => Selector::Album,
+    r"(?i)albumartist"                => Selector::AlbumArtist,
+    r"(?i)titile"                     => Selector::Title,
+    r"(?i)track"                      => Selector::Track,
+    r"(?i)name"                       => Selector::Name,
+    r"(?i)genre"                      => Selector::Genre,
+    r"(?i)date"                       => Selector::Date,
+    r"(?i)originaldate"               => Selector::OriginalDate,
+    r"(?i)composer"                   => Selector::Composer,
+    r"(?i)performer"                  => Selector::Performer,
+    r"(?i)conductor"                  => Selector::Conductor,
+    r"(?i)work"                       => Selector::Work,
+    r"(?i)grouping"                   => Selector::Grouping,
+    r"(?i)comment"                    => Selector::Comment,
+    r"(?i)disc"                       => Selector::Disc,
+    r"(?i)label"                      => Selector::Label,
+    r"(?i)musicbrainz_aristid"        => Selector::MusicbrainzAristID,
+    r"(?i)musicbrainz_albumid"        => Selector::MusicbrainzAlbumID,
+    r"(?i)musicbrainz_albumartistid"  => Selector::MusicbrainzAlbumArtistID,
+    r"(?i)musicbrainz_trackid"        => Selector::MusicbrainzTrackID,
+    r"(?i)musicbrainz_releasetrackid" => Selector::MusicbrainzReleaseTrackID,
+    r"(?i)musicbrainz_workid"         => Selector::MusicbrainzWorkID,
+    r"(?i)file"                       => Selector::File,
+    r"(?i)base"                       => Selector::Base,
+    r"(?i)modifiedsince"              => Selector::ModifiedSince,
+    r"(?i)audioformat"                => Selector::AudioFormat,
+    r"(?i)rating"                     => Selector::Rating,
+    r"(?i)playcount"                  => Selector::PlayCount,
+    r"(?i)lastplayed"                 => Selector::LastPlayed,
+};
+
 pub Token: &'input str = {
-    // I've just ruled-out '(' & ')'
-    <s:r"[a-zA-Z0-09~!@#$%^&*-=_+\[\]{}\|;:<>,./?]+"> => {
-    // First term has no '(' character in it
-    // Need to somehow rule out ending in a ')'
-    // <s:r"[a-zA-Z0-09~!@#$%^&*)-=_+\[\]{}\|;:<>,./?][a-zA-Z0-09~!@#$%^&*()-=_+\[\]{}\|;:<>,./?]*"> => {
+    <s:r"[0-9]+"> => {
         eprintln!("matched token: ``{}''.", s);
         s
     },
-    <s:r#""([ \t'a-zA-Z0-09~!@#$%^&*()-=_+\[\]{}|;:<>,./?]|\\"|\\\))+""#> => {
+    <s:r#""([ \t'a-zA-Z0-9~!@#$%^&*()-=_+\[\]{}|;:<>,./?]|\\"|\\\))+""#> => {
         eprintln!("matched token: ``{}''.", s);
         s
     },
-    <s:r#"'[ \t"a-zA-Z0-09~!@#$%^&*()-=_+\[\]{}|;:<>,./?]+'"#> => {
+    <s:r#"'[ \t"a-zA-Z0-9~!@#$%^&*()-=_+\[\]{}|;:<>,./?]+'"#> => {
         eprintln!("matched token: ``{}''.", s);
         s
     },
 };
 
 pub Term: Box<Term<'input>> = {
-    <t:Token> <u:Token> => {
+    <t:ExprSel> <u:Token> => {
         eprintln!("matched unary condition: ``({}, {})''", t, u);
         Box::new(Term::UnaryCondition(t, u))
     },
-    <t:Token> <o:ExprOp> <u:Token> => {
+    <t:ExprSel> <o:ExprOp> <u:Token> => {
         eprintln!("matched binary condition: ``({}, {:#?}, {})''", t, o, u);
         Box::new(Term::BinaryCondition(t, o, u))
     },
 }
 
 pub Conjunction: Box<Conjunction<'input>> = {
-    <e1:Expression> "AND" <e2:Expression> => Box::new(Conjunction::Simple(e1, e2)),
-    <c:Conjunction> "AND" <e:Expression> => Box::new(Conjunction::Compound(c, e)),
+    <e1:Expression> "AND" <e2:Expression> => {
+        eprintln!("matched conjunction: ``({:#?}, {:#?})''", e1, e2);
+        Box::new(Conjunction::Simple(e1, e2))
+    },
+    <c:Conjunction> "AND" <e:Expression> => {
+        eprintln!("matched conjunction: ``({:#?}, {:#?})''", c, e);
+        Box::new(Conjunction::Compound(c, e))
+    },
 }
 
 pub Disjunction: Box<Disjunction<'input>> = {
-    <e1:Expression> "OR" <e2:Expression> => Box::new(Disjunction::Simple(e1, e2)),
-    <c:Disjunction> "OR" <e:Expression> => Box::new(Disjunction::Compound(c, e)),
+    <e1:Expression> "OR" <e2:Expression> => {
+        eprintln!("matched disjunction: ``({:#?}, {:#?})''", e1, e2);
+        Box::new(Disjunction::Simple(e1, e2))
+    },
+    <c:Disjunction> "OR" <e:Expression> => {
+        eprintln!("matched disjunction: ``({:#?}, {:#?})''", c, e);
+        Box::new(Disjunction::Compound(c, e))
+    },
 }
 
 pub Expression: Box<Expression<'input>> = {
     "(" <t:Term> ")" => {
-        eprintln!("matched simple expression: {:#?}", t);
+        eprintln!("matched parenthesized term: ``({:#?})''", t);
         Box::new(Expression::Simple(t))
     },
     "(" "!" <e:Expression> ")" => Box::new(Expression::Negation(e)),
-    "(" <c:Conjunction> ")" => Box::new(Expression::Conjunction(c)),
-    "(" <c:Disjunction>  ")" => Box::new(Expression::Disjunction(c)),
+    "(" <c:Conjunction> ")" => {
+        eprintln!("matched parenthesized conjunction: ``({:#?})''", c);
+        Box::new(Expression::Conjunction(c))
+    },
+    "(" <c:Disjunction>  ")" => {
+        eprintln!("matched parenthesized disjunction: ``({:#?})''", c);
+        Box::new(Expression::Disjunction(c))
+    },
 }

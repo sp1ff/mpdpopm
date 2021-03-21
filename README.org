@@ -36,10 +36,10 @@ Thanks  to a suggestion by [[https://github.com/m040601][m040601]], you can down
 
 #+BEGIN_SRC bash
 cd /tmp
-curl -L --output mpdpopm-0.2.1.tar.gz https://github.com/sp1ff/mpdpopm/releases/download/0.2.1/mpdpopm-0.2.1-x86_64-unknown-linux.tar.gz
-tar xf mpdpopm-0.2.1.tar.gz
-tree mpdpopm-0.2.1-x86_64-unknown-linux/
-mpdpopm-0.2.1-x86_64-unknown-linux/
+curl -L --output mpdpopm-0.2.2.tar.gz https://github.com/sp1ff/mpdpopm/releases/download/0.2.2/mpdpopm-0.2.2-x86_64-unknown-linux.tar.gz
+tar xf mpdpopm-0.2.2.tar.gz
+tree mpdpopm-0.2.2-x86_64-unknown-linux/
+mpdpopm-0.2.2-x86_64-unknown-linux/
 ├── bin
 │   ├── mppopm
 │   └── mppopmd
@@ -68,8 +68,8 @@ If you're running on a Debian-based Linux distribution, and you're on an x86_64 
 
 #+BEGIN_SRC bash
 cd /tmp
-curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.2.1/mpdpopm_0.2.1_amd64.deb
-sudo dpkg -i mpdpopm_0.2.1_amd64.deb
+curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.2.2/mpdpopm_0.2.2_amd64.deb
+sudo dpkg -i mpdpopm_0.2.2_amd64.deb
 #+END_SRC
 
 The binaries will be placed in =/usr/local/bin=, and you can proceed to [[#getting_started][Getting Started]], below.
@@ -80,9 +80,9 @@ If you've got the Rust toolchain as well as Autotools installed, you can build f
 
 #+BEGIN_SRC bash
 cd /tmp
-curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.2.1/mpdpopm-0.2.1.tar.xz
-tar xf mpdpopm-0.2.1.tar.xz
-cd mpdpopm-0.2.1
+curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.2.2/mpdpopm-0.2.2.tar.xz
+tar xf mpdpopm-0.2.2.tar.xz
+cd mpdpopm-0.2.2
 ./configure
 make
 make check
@@ -198,8 +198,8 @@ Once you've got your configuration file prepared, you should probably start the 
 
 #+BEGIN_SRC bash
 mppopmd -v -F -c <path to configuration file>
-[2020-12-12T15:26:19.620806454-08:00][mppopmd] mppopmd 0.2.1 logging at level Debug.
-[2020-12-12T15:26:19.621395828-08:00][mpdpopm] mpdpopm 0.2.1 beginning.
+[2020-12-12T15:26:19.620806454-08:00][mppopmd] mppopmd 0.2.2 logging at level Debug.
+[2020-12-12T15:26:19.621395828-08:00][mpdpopm] mpdpopm 0.2.2 beginning.
 [2020-12-12T15:26:19.621998677-08:00][mpdpopm::clients] Connected 0.22.0.
 [2020-12-12T15:26:19.623398521-08:00][mpdpopm::clients] Connected 0.22.0.
 [2020-12-12T15:26:19.623874861-08:00][mpdpopm::clients] Sent subscribe message for unwoundstack.com:commands; got `OK

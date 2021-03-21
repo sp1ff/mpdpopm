@@ -25,6 +25,7 @@ use snafu::{Backtrace, GenerateBacktrace, Snafu};
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
+/// The operations that can appear in a filter term
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum OpCode {
     Equality,
@@ -58,12 +59,86 @@ impl std::fmt::Display for OpCode {
     }
 }
 
+/// The song attributes that can appear on the LHS of a filter term
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum Selector {
+    Artist,
+    Album,
+    AlbumArtist,
+    Title,
+    Track,
+    Name,
+    Genre,
+    Date,
+    OriginalDate,
+    Composer,
+    Performer,
+    Conductor,
+    Work,
+    Grouping,
+    Comment,
+    Disc,
+    Label,
+    MusicbrainzAristID,
+    MusicbrainzAlbumID,
+    MusicbrainzAlbumArtistID,
+    MusicbrainzTrackID,
+    MusicbrainzReleaseTrackID,
+    MusicbrainzWorkID,
+    File,
+    Base,
+    ModifiedSince,
+    AudioFormat,
+    Rating,
+    PlayCount,
+    LastPlayed,
+}
+
+impl std::fmt::Display for Selector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Selector::Artist => "artist",
+                Selector::Album => "album",
+                Selector::AlbumArtist => "albumartist",
+                Selector::Title => "title",
+                Selector::Track => "track",
+                Selector::Name => "name",
+                Selector::Genre => "genre",
+                Selector::Date => "date",
+                Selector::OriginalDate => "originaldate",
+                Selector::Composer => "composer",
+                Selector::Performer => "performer",
+                Selector::Conductor => "conductor",
+                Selector::Work => "work",
+                Selector::Grouping => "grouping",
+                Selector::Comment => "comment",
+                Selector::Disc => "disc",
+                Selector::Label => "label",
+                Selector::MusicbrainzAristID => "musicbrainz_aristid",
+                Selector::MusicbrainzAlbumID => "musicbrainz_albumid",
+                Selector::MusicbrainzAlbumArtistID => "musicbrainz_albumartistid",
+                Selector::MusicbrainzTrackID => "musicbrainz_trackid",
+                Selector::MusicbrainzReleaseTrackID => "musicbrainz_releasetrackid",
+                Selector::MusicbrainzWorkID => "musicbrainz_workid",
+                Selector::File => "file",
+                Selector::Base => "base",
+                Selector::ModifiedSince => "modifiedsince",
+                Selector::AudioFormat => "audioformat",
+                Selector::Rating => "rating",
+                Selector::PlayCount => "playcount",
+                Selector::LastPlayed => "lastplayed",
+            }
+        )
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub enum Term<'a> {
-    // TODO(sp1ff): the first token should be an enum, not a str
-    UnaryCondition(&'a str, &'a str),
-    // TODO(sp1ff): the first token should be an enum, not a str
-    BinaryCondition(&'a str, OpCode, &'a str),
+    UnaryCondition(Selector, &'a str),
+    BinaryCondition(Selector, OpCode, &'a str),
 }
 
 #[derive(Clone, Debug)]
@@ -107,19 +182,19 @@ mod smoke_tests {
 
     #[test]
     fn test_conditions() {
-        assert!(TermParser::new().parse("base foo").is_ok());
-        assert!(TermParser::new().parse("artist == foo").is_ok());
+        assert!(TermParser::new().parse("base 'foo'").is_ok());
+        assert!(TermParser::new().parse("artist == 'foo'").is_ok());
         assert!(TermParser::new()
-            .parse(r#"artst =~ "foo bar \"splat\"!""#)
+            .parse(r#"artist =~ "foo bar \"splat\"!""#)
             .is_ok());
-        assert!(TermParser::new().parse("Artist =~ 'Pogues'").is_ok());
+        assert!(TermParser::new().parse("artist =~ 'Pogues'").is_ok());
 
         match *TermParser::new()
             .parse(r#"base "/Users/me/My Music""#)
             .unwrap()
         {
             Term::UnaryCondition(a, b) => {
-                assert!(a == "base");
+                assert!(a == Selector::Base);
                 assert!(b == r#""/Users/me/My Music""#);
             }
             _ => {
@@ -132,7 +207,7 @@ mod smoke_tests {
             .unwrap()
         {
             Term::BinaryCondition(t, op, s) => {
-                assert!(t == "artist");
+                assert!(t == Selector::Artist);
                 assert!(op == OpCode::RegexMatch);
                 assert!(s == r#""foo bar \"splat\"!""#);
             }
@@ -144,30 +219,40 @@ mod smoke_tests {
 
     #[test]
     fn test_expressions() {
-        assert!(ExpressionParser::new().parse("( base foo )").is_ok());
-        assert!(ExpressionParser::new().parse("(base foo)").is_ok());
+        assert!(ExpressionParser::new().parse("( base 'foo' )").is_ok());
+        assert!(ExpressionParser::new().parse("(base \"foo\")").is_ok());
         assert!(ExpressionParser::new()
-            .parse("(!(artist == value))")
+            .parse("(!(artist == 'value'))")
             .is_ok());
         assert!(ExpressionParser::new()
-            .parse(r#"((!(Artist == "foo bar")) AND (base "/My Music"))"#)
+            .parse(r#"((!(artist == "foo bar")) AND (base "/My Music"))"#)
             .is_ok());
+    }
+
+    #[test]
+    fn test_real_expression() {
+        let result = ExpressionParser::new()
+            .parse(r#"(((Artist =~ 'Flogging Molly') OR (artist =~ 'Dropkick Murphys') OR (artist =~ 'Pogues')) AND ((rating > 128) OR (rating == 0)))"#);
+        eprintln!("{:#?}", result);
+        assert!(result.is_ok());
     }
 
     #[test]
     fn test_conjunction() {
         assert!(ExpressionParser::new()
-            .parse(r#"((base foo) AND (Artist == "foo bar") AND (!(file == /net/mp3/A/a.mp3)))"#)
+            .parse(
+                r#"((base "foo") AND (artist == "foo bar") AND (!(file == '/net/mp3/A/a.mp3')))"#
+            )
             .is_ok());
 
         eprintln!("==============================================================================");
         eprintln!("{:#?}", ExpressionParser::new()
             .parse(
-                r#"((base foo) AND (Artist == "foo bar") AND ((!(file == /net/mp3/A/a.mp3)) OR (file == /pub/mp3/A/a.mp3)))"#
+                r#"((base 'foo') AND (artist == "foo bar") AND ((!(file == "/net/mp3/A/a.mp3")) OR (file == "/pub/mp3/A/a.mp3")))"#
             ));
         assert!(ExpressionParser::new()
             .parse(
-                r#"((base foo) AND (Artist == "foo bar") AND ((!(file == /net/mp3/A/a.mp3)) OR (file == /pub/mp3/A/a.mp3)))"#
+                r#"((base 'foo') AND (artist == "foo bar") AND ((!(file == '/net/mp3/A/a.mp3')) OR (file == '/pub/mp3/A/a.mp3')))"#
             )
             .is_ok());
     }
@@ -175,7 +260,7 @@ mod smoke_tests {
     #[test]
     fn test_disjunction() {
         assert!(ExpressionParser::new().
-                parse(r#"((Artist =~ 'Flogging Molly') OR (Artist =~ 'Dropkick Murphys') OR (Artist =~ 'Pogues'))"#)
+                parse(r#"((artist =~ 'Flogging Molly') OR (artist =~ 'Dropkick Murphys') OR (artist =~ 'Pogues'))"#)
                 .is_ok());
     }
 }
@@ -345,24 +430,27 @@ async fn eval_term<'a>(
     stickers: &FilterStickerNames<'a>,
 ) -> std::result::Result<HashSet<String>, Error> {
     match term {
-        Term::UnaryCondition(op, val) => Ok(client.find1(op, val, case).await?.drain(..).collect()),
+        Term::UnaryCondition(op, val) => Ok(client
+            .find1(&format!("{}", op), val, case)
+            .await?
+            .drain(..)
+            .collect()),
         Term::BinaryCondition(attr, op, val) => {
-            // TODO(sp1ff): `attr' should be an enum
-            if attr == &"rating" {
+            if *attr == Selector::Rating {
                 Ok(eval_numeric_sticker_term(stickers.rating, client, *op, val, 0 as u8).await?)
-            } else if attr == &"playcount" {
+            } else if *attr == Selector::PlayCount {
                 Ok(
                     eval_numeric_sticker_term(stickers.playcount, client, *op, val, 0 as usize)
                         .await?,
                 )
-            } else if attr == &"lastplayed" {
+            } else if *attr == Selector::LastPlayed {
                 Ok(
                     eval_numeric_sticker_term(stickers.lastplayed, client, *op, val, 0 as usize)
                         .await?,
                 )
             } else {
                 Ok(client
-                    .find2(attr, &format!("{}", op), val, case)
+                    .find2(&format!("{}", attr), &format!("{}", op), val, case)
                     .await?
                     .drain(..)
                     .collect())
@@ -485,7 +573,6 @@ pub async fn evaluate<'a>(
     client: &mut Client,
     stickers: &FilterStickerNames<'a>,
 ) -> std::result::Result<HashSet<String>, Error> {
-    // ) -> std::result::Result<Box<dyn Iterator<Item = String>>, Error> {
     // We maintain *two* stacks, one for parsing & one for evaluation.  Let sp (for "stack(parse)")
     // be a stack of references to nodes in the parse tree.
     let mut sp = Vec::new();
@@ -510,7 +597,6 @@ pub async fn evaluate<'a>(
             // 2. we have a negation: push the "not" operator onto the evaluation stack & the child
             // onto the parse stack.
             Expression::Negation(be) => {
-                // TODO(sp1ff): optimize the case of !(term)
                 se.push(EvalStackNode::Op(EvalOp::Not));
                 sp.push(&*be);
             }
@@ -586,5 +672,40 @@ pub async fn evaluate<'a>(
                 back: Backtrace::generate(),
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod evaluation_tests {
+
+    use super::*;
+    use crate::filters::*;
+
+    use crate::clients::test_mock::Mock;
+    use crate::clients::Client;
+
+    #[tokio::test]
+    async fn smoke() {
+        let mock = Box::new(Mock::new(&[(
+            r#"find "(base \"foo\")""#,
+            "file: foo/a.mp3
+Artist: The Foobars
+file: foo/b.mp3
+Title: b!
+OK",
+        )]));
+        let mut cli = Client::new(mock).unwrap();
+
+        let stickers = FilterStickerNames::new(&"rating", &"playcount", &"lastplayed");
+
+        let expr = ExpressionParser::new().parse(r#"(base "foo")"#).unwrap();
+        let result = evaluate(&expr, true, &mut cli, &stickers).await;
+        assert!(result.is_ok());
+
+        let g: HashSet<String> = ["foo/a.mp3", "foo/b.mp3"]
+            .into_iter()
+            .map(|x| x.to_string())
+            .collect();
+        assert!(result.unwrap() == g);
     }
 }

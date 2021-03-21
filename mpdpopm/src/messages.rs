@@ -40,7 +40,10 @@
 //! I'm expanding the MPD filter functionality to include attributes tracked by mpdpopm:
 //!
 //!    - findadd replacement: "findadd FILTER [sort TYPE] [window START:END]"
-//!      https://www.musicpd.org/doc/html/protocol.html#the-music-database
+//!      (cf. [here](https://www.musicpd.org/doc/html/protocol.html#the-music-database))
+//!
+//!    - searchadd replacement: "searchadd FILTER [sort TYPE] [window START:END]"
+//!      (cf. [here](https://www.musicpd.org/doc/html/protocol.html#the-music-database))
 //!
 //! Additional commands may be added through the
 //! [generalized commands](crate::commands#the-generalized-command-framework) feature.
@@ -395,6 +398,9 @@ where
         } else if msg.starts_with("findadd ") {
             self.findadd(msg[8..].to_string(), client, stickers, state)
                 .await
+        } else if msg.starts_with("searchadd ") {
+            self.searchadd(msg[10..].to_string(), client, stickers, state)
+                .await
         } else {
             self.maybe_handle_generalized_command(msg, state).await
         }
@@ -531,6 +537,55 @@ where
             .collect::<Result<VecDeque<&str>>>()?;
 
         debug!("findadd arguments: {:#?}", args);
+
+        // there should be 1, 3 or 5 arguments
+
+        // ExpressionParser's not terribly ergonomic: it returns a ParesError<L, T, E>; T is the
+        // offending token, which has the same lifetime as our input, which makes it tough to
+        // capture.  Nor is there a convenient way in which to treat all variants other than the
+        // Error Trait.
+        let ast = match ExpressionParser::new().parse(args[0]) {
+            Ok(ast) => ast,
+            Err(err) => {
+                return Err(Error::FilterParseError {
+                    msg: format!("{}", err),
+                });
+            }
+        };
+
+        debug!("ast: {:#?}", ast);
+
+        let mut results = Vec::new();
+        for song in evaluate(&ast, true, client, stickers).await? {
+            results.push(client.add(&song).await);
+        }
+        match results
+            .into_iter()
+            .collect::<std::result::Result<Vec<()>, crate::clients::Error>>()
+        {
+            Ok(_) => Ok(None),
+            Err(err) => Err(Error::from(err)),
+        }
+    }
+
+    /// Handle `searchadd': "FILTER [sort TYPE] [window START:END]"
+    async fn searchadd<'a>(
+        &self,
+        msg: String,
+        client: &mut Client,
+        stickers: &FilterStickerNames<'a>,
+        _state: &PlayerStatus,
+    ) -> Result<Option<PinnedTaggedCmdFuture>> {
+        // Tokenize the message
+        let mut buf = msg.into_bytes();
+        let args: VecDeque<&str> = tokenize(&mut buf)
+            .map(|r| match r {
+                Ok(buf) => Ok(std::str::from_utf8(buf)?),
+                Err(err) => Err(err),
+            })
+            .collect::<Result<VecDeque<&str>>>()?;
+
+        debug!("searchadd arguments: {:#?}", args);
 
         // there should be 1, 3 or 5 arguments
 

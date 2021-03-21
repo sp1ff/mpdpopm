@@ -1,8 +1,17 @@
 mpdpopm News -- history of user-visible changes           -*- outline -*-
 
+* 0.2.2 build
+
+** User-visible changes
+
+*** `searchadd' command fully working
+
+*** `mppopm' now has findadd & searchadd commands
 * 0.2.1 build
 
-No user-visible changes so far.
+** User-visible changes
+
+*** `findadd' command fully working
 * 0.2.0 build
 
 ** User-visible changes

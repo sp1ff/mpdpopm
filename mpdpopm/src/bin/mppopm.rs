@@ -385,6 +385,17 @@ async fn get_playlists(client: &mut Client) -> Result<()> {
     Ok(())
 }
 
+/// Add songs selected by filter to the queue
+async fn findadd(client: &mut Client, chan: &str, filter: &str, case: bool) -> Result<()> {
+    let cmd = format!(
+        "{} {}",
+        if case { "findadd" } else { "searchadd" },
+        quote(filter)
+    );
+    client.send_message(chan, &cmd).await?;
+    Ok(())
+}
+
 /// Send an arbitrary command
 async fn send_command<'a, A>(client: &mut Client, chan: &str, args: A) -> Result<()>
 where
@@ -509,6 +520,68 @@ is expressed in seconds since Unix epoch.",
             .arg(Arg::with_name("track").index(2)),
     )
     .subcommand(App::new("get-playlists").about("retreive the list of stored playlists"))
+    .subcommand(
+        App::new("findadd")
+            .about("search case-sensitively for songs matching matching a filter and add them to the queue")
+            .long_about(
+                "
+This command extends the MPD command `findadd' (which will search the MPD database) to allow
+searches on attributes managed by mpdpopm: rating, playcount & last played time.
+
+The MPD `findadd' <https://www.musicpd.org/doc/html/protocol.html#command-findadd> will search the
+MPD database for songs that match a given filter & add them to the play queue. The filter syntax is
+documented here <https://www.musicpd.org/doc/html/protocol.html#filter-syntax>.
+
+This command adds three new terms on which you can filter: rating, playcount & lastplayed. Each is
+expressed as an unsigned integer, with zero interpreted as \"not set\". For instance:
+
+    mppopm findadd \"(rating > 128)\"
+
+Will add all songs in the library with a rating sticker > 128 to the play queue.
+
+mppopm also introduces OR clauses (MPD only supports AND), so that:
+
+    mppopm findadd \"((rating > 128) AND (artist =~ \\\"pogues\\\"))\"
+
+will add all songs whose artist tag matches the regexp \"pogues\" with a rating greater than
+128.
+
+`findadd' is case-sensitive; for case-insensitive searching see the `searchadd' command.
+",
+            )
+            .arg(Arg::with_name("filter").index(1).required(true)),
+    )
+    .subcommand(
+        App::new("searchadd")
+            .about("search case-insensitively for songs matching matching a filter and add them to the queue")
+            .long_about(
+                "
+This command extends the MPD command `searchadd' (which will search the MPD database) to allow
+searches on attributes managed by mpdpopm: rating, playcount & last played time.
+
+The MPD `searchadd' <https://www.musicpd.org/doc/html/protocol.html#command-searchadd> will search
+the MPD database for songs that match a given filter & add them to the play queue. The filter syntax
+is documented here <https://www.musicpd.org/doc/html/protocol.html#filter-syntax>.
+
+This command adds three new terms on which you can filter: rating, playcount & lastplayed. Each is
+expressed as an unsigned integer, with zero interpreted as \"not set\". For instance:
+
+    mppopm searchadd \"(rating > 128)\"
+
+Will add all songs in the library with a rating sticker > 128 to the play queue.
+
+mppopm also introduces OR clauses (MPD only supports AND), so that:
+
+    mppopm searchadd \"((rating > 128) AND (artist =~ \\\"pogues\\\"))\"
+
+will add all songs whose artist tag matches the regexp \"pogues\" with a rating greater than
+128.
+
+`searchadd' is case-insensitive; for case-sensitive searching see the `findadd' command.
+",
+            )
+            .arg(Arg::with_name("filter").index(1).required(true)),
+    )
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -703,6 +776,24 @@ async fn main() -> Result<()> {
         .await?);
     } else if let Some(_subm) = matches.subcommand_matches("get-playlists") {
         return Ok(get_playlists(&mut client).await?);
+    } else if let Some(subm) = matches.subcommand_matches("findadd") {
+        return Ok(findadd(
+            &mut client,
+            &cfg.commands_chan,
+            // filter is mandatory
+            subm.value_of("filter").unwrap(),
+            true,
+        )
+        .await?);
+    } else if let Some(subm) = matches.subcommand_matches("searchadd") {
+        return Ok(findadd(
+            &mut client,
+            &cfg.commands_chan,
+            // filter is mandatory
+            subm.value_of("filter").unwrap(),
+            false,
+        )
+        .await?);
     } else if let Some(args) = matches.values_of("args") {
         return Ok(send_command(&mut client, &cfg.commands_chan, args).await?);
     }

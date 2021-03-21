@@ -1,7 +1,23 @@
-2021-03-14  Michael Herstine  <sp1ff@pobox.com>
+2021-03-20  Michael Herstine  <sp1ff@pobox.com>
+
+	First true filter implementation.
+	This commit:
+
+	    1. changes the grammar to use an enumeration for the LHS
+	       of terms
+
+	    2. adds 'searchadd' to the list of commands supported by
+	       mppopmd
+
+	    3. adds 'findadd' & 'searchadd' commands to 'mppopm'
+
+	    4. begins adding unit tests for the evaluator
+
+2021-03-18  Michael Herstine  <sp1ff@pobox.com>
 
 	First commit of filter evaluation logic.
-	Amend me!
+	The filter evaluator is fully functional; method 'findadd' is
+	working.
 
 2021-03-03  Michael Herstine  <sp1ff@pobox.com>
 
