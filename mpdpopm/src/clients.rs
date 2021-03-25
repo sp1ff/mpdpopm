@@ -821,6 +821,7 @@ impl Client {
             if case { "find" } else { "search" },
             quote(&format!("({} {} {})", attr, op, val))
         );
+        debug!("find2 sending ``{}''", cmd);
         let text = self.stream.req(&cmd).await?;
         self.search_rsp_to_uris(&text)
     }

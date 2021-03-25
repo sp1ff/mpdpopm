@@ -301,6 +301,18 @@ mod tokenize_tests {
         assert_eq!(x7[0], b"cmd");
         assert_eq!(x7[1], b"with\\slash and space");
     }
+
+    #[test]
+    fn tokenize_filter() {
+        let mut buf1 = String::from(r#""(artist =~ \"foo\\\\bar\\\"\")""#).into_bytes();
+        let x1: Vec<&[u8]> = tokenize(&mut buf1).collect::<Result<Vec<&[u8]>>>().unwrap();
+        assert_eq!(1, x1.len());
+        eprintln!("x1[0] is ``{}''", std::str::from_utf8(x1[0]).unwrap());
+        assert_eq!(
+            std::str::from_utf8(x1[0]).unwrap(),
+            r#"(artist =~ "foo\\bar\"")"#
+        );
+    }
 }
 
 /// Collective state needed for processing messages, both built-in & generalized
@@ -538,7 +550,7 @@ where
 
         debug!("findadd arguments: {:#?}", args);
 
-        // there should be 1, 3 or 5 arguments
+        // there should be 1, 3 or 5 arguments. `sort' & `window' are not supported, yet.
 
         // ExpressionParser's not terribly ergonomic: it returns a ParesError<L, T, E>; T is the
         // offending token, which has the same lifetime as our input, which makes it tough to
@@ -587,7 +599,7 @@ where
 
         debug!("searchadd arguments: {:#?}", args);
 
-        // there should be 1, 3 or 5 arguments
+        // there should be 1, 3 or 5 arguments. `sort' & `window' are not supported, yet.
 
         // ExpressionParser's not terribly ergonomic: it returns a ParesError<L, T, E>; T is the
         // offending token, which has the same lifetime as our input, which makes it tough to

@@ -34,7 +34,7 @@ use mpdpopm::{
 };
 
 use clap::{App, Arg};
-use log::{info, trace, LevelFilter};
+use log::{debug, info, trace, LevelFilter};
 use log4rs::{
     append::console::{ConsoleAppender, Target},
     config::{Appender, Root},
@@ -387,11 +387,9 @@ async fn get_playlists(client: &mut Client) -> Result<()> {
 
 /// Add songs selected by filter to the queue
 async fn findadd(client: &mut Client, chan: &str, filter: &str, case: bool) -> Result<()> {
-    let cmd = format!(
-        "{} {}",
-        if case { "findadd" } else { "searchadd" },
-        quote(filter)
-    );
+    let qfilter = quote(filter);
+    debug!("findadd: got ``{}'', quoted to ``{}''.", filter, qfilter);
+    let cmd = format!("{} {}", if case { "findadd" } else { "searchadd" }, qfilter);
     client.send_message(chan, &cmd).await?;
     Ok(())
 }
@@ -442,10 +440,11 @@ the convention that 0 denotes \"un-rated\".",
             .about("set the rating for one track")
             .long_about(
                 "
-With no arguments, set the rating of the current song. With a single
-argument, rate that song. Ratings may be expressed as either an
-integer between 0 & 255, inclusive, or as one to five \"stars\"
-(asterisks). Stars are mapped to integers per the Winamp convention:
+With one argument, set the rating of the current song to that argument. 
+With a second argument, rate that song at the first argument. Ratings 
+may be expressed as either an integer between 0 & 255, inclusive, 
+or as one to five \"stars\" (asterisks). Stars are mapped to integers 
+per the Winamp convention:
 
     *       1
     **     64
@@ -480,8 +479,8 @@ per line, prefixed by the track name.",
             .about("set the play count for one track")
             .long_about(
                 "
-With no arguments, set the play count of the current song. With a single
-argument, set the play count for that song.",
+With one argument, set the play count of the current song to that argument. With a
+second argument, set the play count for that song to the first.",
             )
             .arg(Arg::with_name("play-count").index(1).required(true))
             .arg(Arg::with_name("track").index(2)),
@@ -512,9 +511,9 @@ The last played timestamp is expressed in seconds since Unix epoch.",
             .about("set the last played timestamp for one track")
             .long_about(
                 "
-With no arguments, set the last played time of the current song. With a single
-argument, set the last played time for that song. The last played timestamp
-is expressed in seconds since Unix epoch.",
+With one argument, set the last played time of the current song. With two
+arguments, set the last played time for the second argument to the first.
+The last played timestamp is expressed in seconds since Unix epoch.",
             )
             .arg(Arg::with_name("last-played").index(1).required(true))
             .arg(Arg::with_name("track").index(2)),

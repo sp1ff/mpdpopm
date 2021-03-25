@@ -1,4 +1,4 @@
-AC_INIT([mpdpopm], [0.2.2], [sp1ff@pobox.com], [mpdpopm], [https://github.com/sp1ff/mpdpopm])
+AC_INIT([mpdpopm], [0.2.3], [sp1ff@pobox.com], [mpdpopm], [https://github.com/sp1ff/mpdpopm])
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_SRCDIR([mpdpopm/Cargo.toml.in])
 AM_INIT_AUTOMAKE([-Wall -Werror -Wno-portability -Wno-override gnits std-options dist-bzip2 dist-xz])
@@ -27,6 +27,7 @@ AC_CONFIG_FILES([mpdpopm/mppopmd.conf.am:etc/mppopmd.conf.am.in])
 AC_CONFIG_FILES([mpdpopm/mppopmd.service.am:etc/mppopmd.service.am.in])
 AC_CONFIG_FILES([PKGBUILD:admin/PKGBUILD.in])
 AC_CONFIG_FILES([Makefile mpdpopm/Makefile mpdpopm/Cargo.toml])
+AC_CONFIG_FILES([doc/Makefile])
 
 dnl Specify --enable-debug to make a development release.  By default,
 dnl we build in public release mode.

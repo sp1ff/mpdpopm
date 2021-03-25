@@ -1,5 +1,19 @@
 mpdpopm News -- history of user-visible changes           -*- outline -*-
 
+* 0.2.3 build
+
+** User-visible changes
+
+*** broke-up the README
+
+Broke-up README.org into a much shorter version focused on installing mpdpopm and a full-fledged user-manual.
+
+** Bug-fixes
+
+*** quoting
+
+Fixed a number of bugs relating to quoting filters.
+
 * 0.2.2 build
 
 ** User-visible changes

@@ -1,1 +1,1 @@
-SUBDIRS = mpdpopm
+SUBDIRS = mpdpopm doc

@@ -157,7 +157,8 @@ jobs:
         mkdir -p "$staging"/{bin,doc}
         cp -v {README.org,AUTHORS,ChangeLog,COPYING,NEWS,THANKS} "$staging/doc/"
         cp -v mpdpopm/mppopmd.{conf,service} "$staging/doc/"
-        cp -v mpdpopm/target/release/mppopm{,d} "$staging/bin"
+        cp -v doc/mpdpopm.info "$staging/doc/"
+        cp -v mpdpopm/target/release/mppopm{,d} "$staging/bin/"
         tar czf "$staging.tar.gz" "$staging"
         echo "ASSET=$staging.tar.gz" >> $GITHUB_ENV
 

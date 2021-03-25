@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - master
+      - filters
   schedule:
     - cron: '00 01 * * *'
 jobs:

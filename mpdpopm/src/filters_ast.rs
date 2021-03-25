@@ -19,8 +19,11 @@ use crate::clients::Client;
 use crate::error_from;
 
 use boolinator::Boolinator;
+use chrono::prelude::*;
 use log::debug;
 use snafu::{Backtrace, GenerateBacktrace, Snafu};
+
+extern crate regex;
 
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
@@ -125,8 +128,8 @@ impl std::fmt::Display for Selector {
                 Selector::MusicbrainzWorkID => "musicbrainz_workid",
                 Selector::File => "file",
                 Selector::Base => "base",
-                Selector::ModifiedSince => "modifiedsince",
-                Selector::AudioFormat => "audioformat",
+                Selector::ModifiedSince => "modified-since",
+                Selector::AudioFormat => "AudioFormat",
                 Selector::Rating => "rating",
                 Selector::PlayCount => "playcount",
                 Selector::LastPlayed => "lastplayed",
@@ -135,30 +138,61 @@ impl std::fmt::Display for Selector {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-pub enum Term<'a> {
-    UnaryCondition(Selector, &'a str),
-    BinaryCondition(Selector, OpCode, &'a str),
+#[derive(Clone, Debug, PartialEq)]
+pub enum Value {
+    Text(String),
+    UnixEpoch(i64),
+    Uint(usize),
+}
+
+fn quote_value(x: &Value) -> String {
+    match x {
+        Value::Text(s) => {
+            let mut ret = String::new();
+
+            ret.push('"');
+            for c in s.chars() {
+                if c == '"' || c == '\\' {
+                    ret.push('\\');
+                }
+                ret.push(c);
+            }
+            ret.push('"');
+            ret
+        }
+        Value::UnixEpoch(n) => {
+            format!("'{}'", n)
+        }
+        Value::Uint(n) => {
+            format!("'{}'", n)
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
-pub enum Conjunction<'a> {
-    Simple(Box<Expression<'a>>, Box<Expression<'a>>),
-    Compound(Box<Conjunction<'a>>, Box<Expression<'a>>),
+pub enum Term {
+    UnaryCondition(Selector, Value),
+    BinaryCondition(Selector, OpCode, Value),
 }
 
 #[derive(Clone, Debug)]
-pub enum Disjunction<'a> {
-    Simple(Box<Expression<'a>>, Box<Expression<'a>>),
-    Compound(Box<Disjunction<'a>>, Box<Expression<'a>>),
+pub enum Conjunction {
+    Simple(Box<Expression>, Box<Expression>),
+    Compound(Box<Conjunction>, Box<Expression>),
 }
 
 #[derive(Clone, Debug)]
-pub enum Expression<'a> {
-    Simple(Box<Term<'a>>),
-    Negation(Box<Expression<'a>>),
-    Conjunction(Box<Conjunction<'a>>),
-    Disjunction(Box<Disjunction<'a>>),
+pub enum Disjunction {
+    Simple(Box<Expression>, Box<Expression>),
+    Compound(Box<Disjunction>, Box<Expression>),
+}
+
+#[derive(Clone, Debug)]
+pub enum Expression {
+    Simple(Box<Term>),
+    Negation(Box<Expression>),
+    Conjunction(Box<Conjunction>),
+    Disjunction(Box<Disjunction>),
 }
 
 #[cfg(test)]
@@ -195,7 +229,7 @@ mod smoke_tests {
         {
             Term::UnaryCondition(a, b) => {
                 assert!(a == Selector::Base);
-                assert!(b == r#""/Users/me/My Music""#);
+                assert!(b == Value::Text(String::from(r#"/Users/me/My Music"#)));
             }
             _ => {
                 assert!(false);
@@ -209,7 +243,7 @@ mod smoke_tests {
             Term::BinaryCondition(t, op, s) => {
                 assert!(t == Selector::Artist);
                 assert!(op == OpCode::RegexMatch);
-                assert!(s == r#""foo bar \"splat\"!""#);
+                assert!(s == Value::Text(String::from(r#"foo bar "splat"!"#)));
             }
             _ => {
                 assert!(false);
@@ -226,6 +260,14 @@ mod smoke_tests {
             .is_ok());
         assert!(ExpressionParser::new()
             .parse(r#"((!(artist == "foo bar")) AND (base "/My Music"))"#)
+            .is_ok());
+    }
+
+    #[test]
+    fn test_quoted_expr() {
+        eprintln!("test_quoted_expr");
+        assert!(ExpressionParser::new()
+            .parse(r#"(artist =~ "foo\\bar\"")"#)
             .is_ok());
     }
 
@@ -285,6 +327,24 @@ pub enum Error {
         #[snafu(backtrace(true))]
         back: Backtrace,
     },
+    #[snafu(display("'{}' could not be parsed as an ISO 8601 timestamp.", text))]
+    BadISO8601String {
+        text: String,
+        #[snafu(backtrace(true))]
+        back: Backtrace,
+    },
+    #[snafu(display("'{}' could not be parsed as quoted text.", text))]
+    ExpectQuoted {
+        text: String,
+        #[snafu(backtrace(true))]
+        back: Backtrace,
+    },
+    #[snafu(display("While evaluating a filter, {}.", text))]
+    FilterTypeErr {
+        text: String,
+        #[snafu(backtrace(true))]
+        back: Backtrace,
+    },
     #[snafu(display("Operator {:#?} is not valid in this context.", op))]
     InvalidOperand {
         op: OpCode,
@@ -294,6 +354,12 @@ pub enum Error {
     #[snafu(display("Operator {:#?} left on the stack.", op))]
     OperatorOnStack {
         op: EvalOp,
+        #[snafu(backtrace(true))]
+        back: Backtrace,
+    },
+    #[snafu(display("Rating {} out-of-range (0-255, inclusive).", rating))]
+    RatingOverflow {
+        rating: usize,
         #[snafu(backtrace(true))]
         back: Backtrace,
     },
@@ -307,6 +373,310 @@ pub enum Error {
 
 error_from!(crate::clients::Error);
 error_from!(std::num::ParseIntError);
+error_from!(std::str::Utf8Error);
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+fn peek(buf: &[u8]) -> Option<char> {
+    match buf.len() {
+        0 => None,
+        _ => Some(buf[0] as char),
+    }
+}
+
+// PRE: `buf' is ASCII
+fn take<'a>(buf: &'a mut &[u8], i: usize) -> Option<&'a str> {
+    if i <= buf.len() {
+        let (first, second) = buf.split_at(i);
+        *buf = second;
+        Some(std::str::from_utf8(first).unwrap())
+    } else {
+        None
+    }
+}
+
+/// Parse a timestamp in ISO 8601 format to a chrono DateTime instance
+///
+/// Surprisingly, I was unable to find an ISO 8601 parser in Rust. I *did* find a crate named
+/// iso-8601 that promised to do this, but it seemed derelict & I couldn't see what to do with the
+/// parse output in any event. The ISO 8601 format is simple enough that I've chosen to simply
+/// hand-parse it.
+pub fn parse_iso_8601(mut buf: &mut &[u8]) -> Result<i64> {
+    // The first four characters must be the year (expanded year representation is not supported by
+    // this parser).
+    let year = match take(&mut buf, 4) {
+        Some(s) => s.parse::<i32>()?,
+        None => {
+            return Err(Error::BadISO8601String {
+                text: String::from(std::str::from_utf8(buf)?),
+                back: Backtrace::generate(),
+            });
+        }
+    };
+
+    // Now at this point:
+    //   1. we may be done (i.e. buf.len() == 0)
+    //   2. we may have the timestamp (peek(buf) => Some('T'))
+    //      - day & month := 0, consume the 'T', move on to parsing the time
+    //   3. we may have a month in extended format (i.e. peek(buf) => Some('-')
+    //      - consume the '-', parse the month & move on to parsing the day
+    //   4. we may have a month in basic format (take(buf, 2) => Some('\d\d')
+    //      - parse the month & move on to parsing the day
+    let mut month = 1;
+    let mut day = 1;
+    let mut hour = 0;
+    let mut minute = 0;
+    let mut second = 0;
+    if buf.len() != 0 {
+        let next = peek(buf);
+        if next != Some('T') {
+            let mut ext_fmt = false;
+            if next == Some('-') {
+                take(&mut buf, 1);
+                ext_fmt = true;
+            }
+            match take(&mut buf, 2) {
+                Some(s) => {
+                    month = s.parse::<u32>()?;
+                }
+                None => {
+                    return Err(Error::BadISO8601String {
+                        text: String::from(std::str::from_utf8(buf)?),
+                        back: Backtrace::generate(),
+                    });
+                }
+            }
+
+            // At this point:
+            //   1. we may be done (i.e. buf.len() == 0)
+            //   2. we may have the timestamp (peek(buf) => Some('T'))
+            //   3. we may have the day (in basic or extended format)
+            if buf.len() != 0 {
+                if peek(buf) != Some('T') {
+                    if ext_fmt {
+                        take(&mut buf, 1);
+                    }
+                    match take(&mut buf, 2) {
+                        Some(s) => {
+                            day = s.parse::<u32>()?;
+                        }
+                        None => {
+                            return Err(Error::BadISO8601String {
+                                text: String::from(std::str::from_utf8(buf)?),
+                                back: Backtrace::generate(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // Parse time: at this point, buf will either be empty or begin with 'T'
+        if buf.len() != 0 {
+            take(&mut buf, 1);
+            // If there's a T, there must at least be an hour
+            match take(&mut buf, 2) {
+                Some(s) => {
+                    hour = s.parse::<u32>()?;
+                }
+                None => {
+                    return Err(Error::BadISO8601String {
+                        text: String::from(std::str::from_utf8(buf)?),
+                        back: Backtrace::generate(),
+                    });
+                }
+            }
+            if buf.len() != 0 {
+                let mut ext_fmt = false;
+                if peek(buf) == Some(':') {
+                    take(&mut buf, 1);
+                    ext_fmt = true;
+                }
+                match take(&mut buf, 2) {
+                    Some(s) => {
+                        minute = s.parse::<u32>()?;
+                    }
+                    None => {
+                        return Err(Error::BadISO8601String {
+                            text: String::from(std::str::from_utf8(buf)?),
+                            back: Backtrace::generate(),
+                        });
+                    }
+                }
+                if buf.len() != 0 {
+                    if ext_fmt {
+                        take(&mut buf, 1);
+                    }
+                    match take(&mut buf, 2) {
+                        Some(s) => {
+                            second = s.parse::<u32>()?;
+                        }
+                        None => {
+                            return Err(Error::BadISO8601String {
+                                text: String::from(std::str::from_utf8(buf)?),
+                                back: Backtrace::generate(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // At this point, there may be a timezone
+        if buf.len() != 0 {
+            if peek(buf) == Some('Z') {
+                return Ok(Utc
+                    .ymd(year, month, day)
+                    .and_hms(hour, minute, second)
+                    .timestamp());
+            } else {
+                let next = peek(buf);
+                if next != Some('-') && next != Some('+') {
+                    return Err(Error::BadISO8601String {
+                        text: String::from(std::str::from_utf8(buf)?),
+                        back: Backtrace::generate(),
+                    });
+                }
+                let west = next == Some('-');
+                take(&mut buf, 1);
+
+                let hours = match take(&mut buf, 2) {
+                    Some(s) => s.parse::<i32>()?,
+                    None => {
+                        return Err(Error::BadISO8601String {
+                            text: String::from(std::str::from_utf8(buf)?),
+                            back: Backtrace::generate(),
+                        });
+                    }
+                };
+                let mut minutes = 0;
+
+                if buf.len() > 0 {
+                    if peek(buf) == Some(':') {
+                        take(&mut buf, 1);
+                    }
+                    match take(&mut buf, 2) {
+                        Some(s) => {
+                            minutes = s.parse::<i32>()?;
+                        }
+                        None => {
+                            return Err(Error::BadISO8601String {
+                                text: String::from(std::str::from_utf8(buf)?),
+                                back: Backtrace::generate(),
+                            });
+                        }
+                    }
+                }
+
+                if west {
+                    return Ok(FixedOffset::west(hours * 3600 + minutes * 60)
+                        .ymd(year, month, day)
+                        .and_hms(hour, minute, second)
+                        .timestamp());
+                } else {
+                    return Ok(FixedOffset::east(hours * 3600 + minutes * 60)
+                        .ymd(year, month, day)
+                        .and_hms(hour, minute, second)
+                        .timestamp());
+                }
+            }
+        }
+    }
+    Ok(Local
+        .ymd(year, month, day)
+        .and_hms(hour, minute, second)
+        .timestamp())
+}
+
+#[cfg(test)]
+mod iso_8601_tests {
+
+    use super::*;
+
+    #[test]
+    fn smoke_tests() {
+        let mut b = "19700101T00:00:00Z".as_bytes();
+        let t = parse_iso_8601(&mut b).unwrap();
+        assert!(t == 0);
+
+        let mut b = "19700101T00:00:01Z".as_bytes();
+        let t = parse_iso_8601(&mut b).unwrap();
+        assert!(t == 1);
+
+        let mut b = "20210327T02:26:53Z".as_bytes();
+        let t = parse_iso_8601(&mut b).unwrap();
+        assert_eq!(t, 1616812013);
+
+        let mut b = "20210327T07:29:05-07:00".as_bytes();
+        let t = parse_iso_8601(&mut b).unwrap();
+        assert_eq!(t, 1616855345);
+
+        let mut b = "2021".as_bytes();
+        // Should resolve to midnight, Jan 1 2021 in local time; don't want to test against the
+        // timestamp; just make sure it parses
+        parse_iso_8601(&mut b).unwrap();
+    }
+}
+
+/// "Un-quote" a token
+///
+/// Textual tokens must be quoted, and double-quote & backslashes within backslash-escaped. If the
+/// string is quoted with single-quotes, then any single-quotes inside the string will also need
+/// to be escaped.
+///
+/// In fact, *any* characters within may be harmlessly backslash escaped; the MPD implementation
+/// walks the the string, skipping backslashes as it goes, so this implementation will do the same.
+/// I have named this method in imitation of the corresponding MPD function.
+pub fn expect_quoted(qtext: &str) -> Result<String> {
+    let mut iter = qtext.chars();
+    let quote = iter.next();
+    if quote.is_none() {
+        return Ok(String::new());
+    }
+
+    if quote != Some('\'') && quote != Some('"') {
+        return Err(Error::ExpectQuoted {
+            text: String::from(qtext),
+            back: Backtrace::generate(),
+        });
+    }
+
+    let mut ret = String::new();
+
+    // Walk qtext[1..]; copying characters to `ret'. If a '\' is found, skip to the next character
+    // (even if that is a '\'). The last character in qtext should be the closing quote.
+    let mut this = iter.next();
+    while this != quote {
+        if this == Some('\\') {
+            this = iter.next();
+        }
+        match this {
+            Some(c) => ret.push(c),
+            None => {
+                return Err(Error::ExpectQuoted {
+                    text: String::from(qtext),
+                    back: Backtrace::generate(),
+                });
+            }
+        }
+        this = iter.next();
+    }
+
+    Ok(ret)
+}
+
+#[cfg(test)]
+mod quoted_tests {
+
+    use super::*;
+
+    #[test]
+    fn smoke_tests() {
+        let b = r#""foo bar \"splat!\"""#;
+        let s = expect_quoted(b).unwrap();
+        assert!(s == r#"foo bar "splat!""#);
+    }
+}
 
 /// Create a closure that will carry out an operator on its argument
 ///
@@ -320,7 +690,7 @@ error_from!(std::num::ParseIntError);
 fn make_numeric_closure<'a, T: 'a + PartialEq + PartialOrd + Copy>(
     op: OpCode,
     val: T,
-) -> std::result::Result<impl Fn(T) -> bool + 'a, Error> {
+) -> Result<impl Fn(T) -> bool + 'a> {
     // Rust closures each have their own type, so this was the only way I could find to
     // return them from match arms. This seems ugly; perhaps there's something I'm
     // missing.
@@ -352,15 +722,14 @@ async fn eval_numeric_sticker_term<
     // to implement std::error::Error. I should probably be doing that, but it clutters the
     // code. I'll figure it out when I need to extend this function to handle non-integral types
     // :)
-    T: PartialEq + PartialOrd + Copy + FromStr<Err = std::num::ParseIntError>,
+    T: PartialEq + PartialOrd + Copy + FromStr<Err = std::num::ParseIntError> + std::fmt::Display,
 >(
     sticker: &str,
     client: &mut Client,
     op: OpCode,
-    val: &str,
+    numeric_val: T,
     default_val: T,
-) -> std::result::Result<HashSet<String>, Error> {
-    let numeric_val = val.parse::<T>()?;
+) -> Result<HashSet<String>> {
     let cmp = make_numeric_closure(op, numeric_val)?;
     // It would be better to idle on the sticker DB & just update our collection on change, but for
     // a first impl. this will do.
@@ -377,7 +746,7 @@ async fn eval_numeric_sticker_term<
         .await?
         .drain()
         .map(|(k, v)| v.parse::<T>().map(|x| (k, x)))
-        .collect::<Result<HashMap<String, T>, _>>()?;
+        .collect::<std::result::Result<HashMap<String, T>, _>>()?;
     // `m' is now a map of song URI to rating/playcount/wathever (expressed as a T)... for all songs
     // that have the salient sticker.
     //
@@ -424,33 +793,79 @@ impl<'a> FilterStickerNames<'a> {
 /// Take a Term from the Abstract Syntax tree & resolve it to a collection of song URIs. Set `case`
 /// to `true` to search case-sensitively & `false` to make the search case-insensitive.
 async fn eval_term<'a>(
-    term: &Term<'a>,
+    term: &Term,
     case: bool,
     client: &mut Client,
     stickers: &FilterStickerNames<'a>,
-) -> std::result::Result<HashSet<String>, Error> {
+) -> Result<HashSet<String>> {
     match term {
         Term::UnaryCondition(op, val) => Ok(client
-            .find1(&format!("{}", op), val, case)
+            .find1(&format!("{}", op), &quote_value(&val), case)
             .await?
             .drain(..)
             .collect()),
         Term::BinaryCondition(attr, op, val) => {
             if *attr == Selector::Rating {
-                Ok(eval_numeric_sticker_term(stickers.rating, client, *op, val, 0 as u8).await?)
+                match val {
+                    Value::Uint(n) => {
+                        if *n > 255 {
+                            return Err(Error::RatingOverflow {
+                                rating: *n,
+                                back: Backtrace::generate(),
+                            });
+                        }
+                        Ok(eval_numeric_sticker_term(
+                            stickers.rating,
+                            client,
+                            *op,
+                            *n as u8,
+                            0 as u8,
+                        )
+                        .await?)
+                    }
+                    _ => Err(Error::FilterTypeErr {
+                        text: format!("filter ratings expect an unsigned int; got {:#?}", val),
+                        back: Backtrace::generate(),
+                    }),
+                }
             } else if *attr == Selector::PlayCount {
-                Ok(
-                    eval_numeric_sticker_term(stickers.playcount, client, *op, val, 0 as usize)
-                        .await?,
-                )
+                match val {
+                    Value::Uint(n) => Ok(eval_numeric_sticker_term(
+                        stickers.playcount,
+                        client,
+                        *op,
+                        *n,
+                        0 as usize,
+                    )
+                    .await?),
+                    _ => Err(Error::FilterTypeErr {
+                        text: format!("filter ratings expect an unsigned int; got {:#?}", val),
+                        back: Backtrace::generate(),
+                    }),
+                }
             } else if *attr == Selector::LastPlayed {
-                Ok(
-                    eval_numeric_sticker_term(stickers.lastplayed, client, *op, val, 0 as usize)
-                        .await?,
-                )
+                match val {
+                    Value::UnixEpoch(t) => Ok(eval_numeric_sticker_term(
+                        stickers.lastplayed,
+                        client,
+                        *op,
+                        *t,
+                        0 as i64,
+                    )
+                    .await?),
+                    _ => Err(Error::FilterTypeErr {
+                        text: format!("filter ratings expect an unsigned int; got {:#?}", val),
+                        back: Backtrace::generate(),
+                    }),
+                }
             } else {
                 Ok(client
-                    .find2(&format!("{}", attr), &format!("{}", op), val, case)
+                    .find2(
+                        &format!("{}", attr),
+                        &format!("{}", op),
+                        &quote_value(val),
+                        case,
+                    )
                     .await?
                     .drain(..)
                     .collect())
@@ -491,7 +906,7 @@ async fn negate_result(
 ///
 /// 1. S.len() > 2 and S[-3] is either And or Or, and both S[-1] & S[-2] are Result-s
 /// 2. S.len() > 1, S[-2] is Not, and S[-1] is a Result
-async fn reduce(stack: &mut Vec<EvalStackNode>, client: &mut Client) -> Result<(), Error> {
+async fn reduce(stack: &mut Vec<EvalStackNode>, client: &mut Client) -> Result<()> {
     loop {
         let mut reduced = false;
         let n = stack.len();
@@ -568,11 +983,11 @@ async fn reduce(stack: &mut Vec<EvalStackNode>, client: &mut Client) -> Result<(
 
 /// Evaluate an abstract syntax tree (AST)
 pub async fn evaluate<'a>(
-    expr: &Expression<'a>,
+    expr: &Expression,
     case: bool,
     client: &mut Client,
     stickers: &FilterStickerNames<'a>,
-) -> std::result::Result<HashSet<String>, Error> {
+) -> Result<HashSet<String>> {
     // We maintain *two* stacks, one for parsing & one for evaluation.  Let sp (for "stack(parse)")
     // be a stack of references to nodes in the parse tree.
     let mut sp = Vec::new();
@@ -703,7 +1118,7 @@ OK",
         assert!(result.is_ok());
 
         let g: HashSet<String> = ["foo/a.mp3", "foo/b.mp3"]
-            .into_iter()
+            .iter()
             .map(|x| x.to_string())
             .collect();
         assert!(result.unwrap() == g);

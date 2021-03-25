@@ -1,0 +1,1214 @@
+\input texinfo   @c -*- texinfo -*-
+@c %**start of header
+@setfilename mpdpopm.info
+@settitle mpdpopm
+@include version.texi
+@c %**end of header
+
+@dircategory Music
+@direntry
+* mpdpopm: (mpdpopm). Maintain ratings & playcounts for your mpd server.
+@end direntry
+
+@copying
+This manual corresponds to mpdpopm version @value{VERSION}.
+
+Copyright @copyright{} 2021 Michael Herstine <sp1ff@@pobox.com>
+
+@quotation
+Permission is granted to copy, distribute and/or modify this document
+under the terms of the GNU Free Documentation License, Version 1.3
+or any later version published by the Free Software Foundation;
+with no Invariant Sections, no Front-Cover Texts, and no Back-Cover Texts.
+A copy of the license is included in the section entitled ``GNU
+Free Documentation License''.
+
+A copy of the license is also available from the Free Software
+Foundation Web site at @url{https://www.gnu.org/licenses/fdl.html}.
+
+@end quotation
+
+This document was typeset with
+@uref{http://www.texinfo.org/, GNU Texinfo}.
+
+@end copying
+
+@c title & copyright-- won't appear in online output.
+@titlepage
+@title mpdpopm
+@subtitle Maintain ratings & playcounts for your mpd server.
+@author @email{sp1ff@@pobox.com}
+@page
+@vskip 0pt plus 1filll
+@insertcopying
+@end titlepage
+
+@c Output the table of the contents at the beginning.
+@contents
+
+@c ``top'' node-- this is the start of the online output, but doesn't
+@c appear in the printed manual
+@ifnottex
+@node Top
+@top mpdpopm
+
+Maintain ratings & playcounts for your mpd server..
+
+This manual corresponds to mpdpopm version @value{VERSION}.
+
+@end ifnottex
+
+@c Generate the nodes for this menu with `C-c C-u C-m'.
+@menu
+* Introduction::
+* Getting Started::
+* The commands::
+* Advanced Usage::
+* Sample Configuration File::
+* Index::
+@end menu
+
+@node Introduction
+@chapter Introduction
+
+@url{https://github.com/sp1ff/mpdpopm, mpdpopm} provides a companion
+daemon to @url{https://www.musicpd.org/, MPD} that will maintain play
+counts, ratings, & last-played timestamps for your music library,
+along with an associated CLI for talking to the companion
+daemon. Similar to @url{https://github.com/vincent-petithory/mpdfav,
+mpdfav}, but written in Rust (which I prefer to Go), it will maintain
+this information in your sticker database. Along the lines of
+@url{https://alip.github.io/mpdcron, mpdcron}, it will also allow you
+to keep that information up-to-date in your tags or other data stores
+by invoking external (user-provided & -configured) commands.
+
+@node Getting Started
+@chapter Getting Started
+
+NB. The project @url{https://github.com/sp1ff/mpdpopm, README}
+contains the reference instructions for @code{mpdpopm} installation.
+
+@c Generate the nodes for this menu with `C-c C-u C-m'.
+@menu
+* Prerequisites::
+* Installing mpdpopm::
+* Setting up mpdpopm::
+@end menu
+
+@node Prerequisites
+@section Prerequisites
+
+@cindex prerequisites
+
+@code{mpdpopm} is distributed in a number of formats. The
+prerequisites depend on the distribution format, but in any event you
+need to have @code{MPD} installed & running in order to use
+@code{mpdpopm}. See also @ref{Setting up mpd}.
+
+The pre-built binary distribution, the Debian package, and the Arch
+binary package require no other pre-requisites.
+
+Downloading @code{mpdpopm} from @url{https://crates.io/crates/mpdpopm,
+crates.io} requires the Rust toolchain.
+
+Building from source via the Autotools distribution further requires
+the Gnu
+@url{https://www.gnu.org/software/automake/manual/html_node/Autotools-Introduction.html,
+Autools}.
+
+@node Installing mpdpopm
+@section Installing mpdpopm
+
+@cindex installing
+
+@code{mpdpopm} may be installed in a number of ways. Refer to the
+project @url{https://github.com/sp1ff/mpdpopm, README} for the most
+up-to-date instructions.
+
+@enumerate
+
+@item
+Pre-built binaries are available for Linux & MacOS.
+
+@item
+@code{mpdpopm} can be installed from
+@url{https://crates.io/crates/mpdpopm, crates.io}.
+
+@item
+There is a binary package available for x86_64 Debian-based Linux systems.
+
+@item
+There is a binary package available for x86_64 Arch-based Linux systems.
+
+@item
+There is an Autotools-based distribution available.
+
+@end enumerate
+
+@node Setting up mpdpopm
+@section Setting up mpdpopm
+
+mpdpopm provides two programs:
+
+@enumerate
+
+@item
+@code{mppopmd} is the companion daemon process to MPD
+
+@item
+@code{mppopm} is the command-line interface to @code{mppopmd}
+
+@end enumerate
+
+Both programs make use of the MPD
+@url{https://www.musicpd.org/doc/html/protocol.html, protocol}, a
+simple text-based protocol by which clients can communicate with the
+MPD daemon and with one another. From the perspective of
+MPD, @code{mppopm} & @code{mppopmd} are just new clients. Via
+this protocol @code{mppopmd} will monitor MPD for song playback
+& note when songs complete; this is how it knows to increment the
+playcount & update the last played timestamp for each song to which
+you listen.
+
+Also via the protocol, MPD clients can communicate with one
+another by registering "channels" and subscribing to them; one client
+can send a message to a given channel, and all other clients
+subscribed to that channel will receive that message. In particular,
+if an MPD client sends the "rating" command to the
+@code{mppopmd} commands channel (the channel name is configurable, but
+defaults to "unwoundstack.com:commands"), @code{mppopmd} will set the
+rating for the given track.
+
+The mechanism by which @code{mppopmd} records this information (i.e
+play counts, last played and ratings) is MPD
+@url{https://www.musicpd.org/doc/html/protocol.html#stickers,
+stickers}. A sticker is a little bit of textual information which
+clients can attach to songs in the form of a name-value
+pair. @code{mpdpopm} defines a new sticker name (again configurable)
+for each of these items & udpates the values for each song when & as
+requested.
+
+Of course, other MPD clients will not, in general, be aware of
+@code{mppopmd}, its command channel, or the stickers it sets: you the
+user will have to bridge that gap. You could of course just fire-up
+@code{netcat} & start sending commands, but that's not particularly
+convenient. That's where @code{mppopm} comes in. It is a small
+command-line tool for controlling the @code{mppopmd} daemon; you could
+for instance say @command{mppopm set-rating '*****'} to rate the
+current track at five stars. Under the hood, it connects to the MPD
+daemon, sends a "rating" message to the @code{mppopmd} commands
+channel, and @code{mppopmd}, in turn, tells MPD to set the rating
+sticker for the curren track to 255 (more on the rating system below).
+
+@c Generate the nodes for this menu with `C-c C-u C-m'.
+@menu
+* Setting up mpd::
+* Setting up mppopmd::
+* Setting up mppopm::
+@end menu
+
+@node Setting up mpd
+@subsection Setting-up mpd
+
+Configuring & setting up MPD is beyond the scope of this
+manual; see the MPD manual
+@url{https://www.musicpd.org/doc/html/user.html, here}.
+
+@cindex configuration, mpd
+
+One note, however: in order for @code{mpdpopm} to function, MPD
+must be configured to enable the sticker database. This is done via
+the @code{sticker_file} configuration item. The user as whom
+@code{mppopmd} is run will need access to the file named therein and
+its parent directories. See
+@url{https://www.musicpd.org/doc/html/user.html#the-sticker-database,
+here} for details.
+
+@node Setting up mppopmd
+@subsection Setting up mppopmd
+
+@code{mppopmd} is the companion daemon to MPD. Once installed, most
+configuration items have sensible defaults, but there are a few that
+will need to be customized to the user's particular taste (mostly
+having to do with their MPD configuration).
+
+It is recommended that it be run in the foreground initially (using
+the @option{-F} flag) for purposes of trouble-shooting, but after
+that the user will likely want to run it as a daemon.
+
+@c Generate the nodes for this menu with `C-c C-u C-m'.
+@menu
+* mppopmd Configuration::
+* mppopmd as a Daemon::
+@end menu
+
+@node mppopmd Configuration
+@subsubsection mppopmd Configuration
+
+@cindex configuration, mppopmd
+
+The configuration file's location is specified on the @code{mppopmd}
+command-line (using the @option{-c} flag). It takes the form of a LISP
+S-expression in which each top-level configuration item is a cons
+cell. LISP comments will be ignored.
+
+General-purpose items:
+
+@itemize
+
+@item
+@code{host} The network address on which the MPD daemon is
+listening. It should match @code{bind_to_address} in your MPD
+configuration file. The default value is "localhost".
+
+@item
+@code{port} The TCP port on which the MPD daemon is listening. This
+should match the @code{port} setting in your MPD configuration
+file. The default value is 6600.
+
+@item
+@code{local_music_dir} The root of your MPD music directory, as seen
+from this host. This will be used to evaluate the @code{%full-file}
+and @code{%current-file} replacement parameters when executing
+commands (on which more @pxref{Keeping Your Tags Up-to-date, below}).
+
+@item
+@code{log} The file to which the daemon will log when running in the
+background (if you specify the @option{-F} flag, to run it in the
+foreground, it will log to @code{stdout}); no log rotation is
+provided, so setup @command{logrotate}, run it under @command{systemd}
+(see @pxref{mppopmd as a Daemon, below}) or keep an eye on it so it
+doesn't grow too large.
+
+@item
+@code{commands_chan} The name of the MPD channel on which
+@code{mppopmd} shall listen for commands ("unwoundstack.com:commands"
+by default).
+
+@end itemize
+
+Configuration items related to maintaining play counts & last-played
+timestamps:
+
+@itemize
+
+@item
+@code{playcount_sticker} The sticker name @code{mpdpopm} will use to
+store play counts (defaults to "unwoundstack.com:playcount").
+
+@item
+@code{lastplayed_sticker} The sticker name mpdpopm will use to store
+the last played timestamp (defaults to "unwoundstack.com:lastplayed")
+
+@item
+@code{played_thresh} The percentage of a song's duration that must be
+played back in order for it to be considered as "played", expressed as
+number between 0 & 1 (defaults to 0.6).
+
+@item
+@code{poll_interval_ms} The amount of time, in milliseconds, between
+polls of MPD by @code{mppopmd} to check on playback progress. This is
+the error bound on detection of song having been ``played'' in that if
+a poll is performed the instant before the current song's playback
+reaches @code{played_thresh}, it may be up to this many milliseconds
+before @code{mppopmd} tries again and belatedly determines that the
+current track has been ``played'' (and hence updates the playcount,
+last played time &c). Since this is not, in general, a time-sensitive
+operation, the default setting is 5000 (i.e. five seconds) to keep
+network traffic down.
+
+@item
+@code{playcount_command} An optional name of a program to run when the
+play count is incremented; this should be an absolute path. Use
+@code{playcount_command_args} to specify arguments to this
+command. The intent behind this feature is to enable the user to keep
+other data stores (such as ID3 tags) up-to-date with play count
+information (on which more @pxref{Keeping Your Tags Up-to-date,
+below})
+
+@item
+@code{playcount_command_args} An array of arguments to specify to the
+playcount command; arguments may contain replacement parameters that
+will be filled in at the time of execution.
+
+@end itemize
+
+Configuration items related to ratings:
+
+@itemize
+
+@item
+@code{rating_sticker} The sticker name @code{mppopmd} will use to
+store the rating (defaults to "unwoundstack.com:rating").
+
+@code{ratings_command} An optional name of a program to run when the
+rating is set; this should be an absolute path. Use
+@code{ratings_command_args} to specify arguments to this command.  The
+intent behind this feature is to enable the user to keep other data
+stores (such as ID3 tags) up-to-date with play count information (on
+which more @pxref{Keeping Your Tags Up-to-date, below}).
+
+@code{ratings_command_args} An array of arguments to specify to the
+ratings command; arguments may contain replacement parameters that
+will be filled in at the time of execution.
+
+@end itemize
+
+Finally, the configuration for generalized commands is not described
+here, but rather under @ref{Generalized Commands}.
+
+@code{mpdpopm} ships with a minimal sample configuration file. A more
+expansive sample appears at the end of this manual (@pxref{Sample
+Configuration File}).
+
+@node mppopmd as a Daemon
+@subsubsection mppopmd as a Daemon
+
+Once you've got your configuration file prepared, you should probably
+start the daemon in the foreground for ease of trouble-shooting. I
+suggest starting it with the @option{-v} flag ("verbose") the first
+time, as well (there's also a @option{-d} flag which will produce more
+copious debug output). You should expect to see something like this:
+
+@example
+mppopmd -v -F -c <path to configuration file>
+[2020-12-12T15:26:19.620806454-08:00][mppopmd] mppopmd 0.2.2 logging at level Debug.
+[2020-12-12T15:26:19.621395828-08:00][mpdpopm] mpdpopm 0.2.2 beginning.
+[2020-12-12T15:26:19.621998677-08:00][mpdpopm::clients] Connected 0.22.0.
+[2020-12-12T15:26:19.623398521-08:00][mpdpopm::clients] Connected 0.22.0.
+[2020-12-12T15:26:19.623874861-08:00][mpdpopm::clients] Sent subscribe message for unwoundstack.com:commands; got `OK
+'.
+[2020-12-12T15:26:19.623888424-08:00][mpdpopm::clients] Subscribed to unwoundstack.com:commands.
+[2020-12-12T15:26:19.624985027-08:00][mpdpopm] selecting...
+[2020-12-12T15:26:19.628412738-08:00][mpdpopm] output status is Ok(
+    Output @{
+        status: ExitStatus(
+            ExitStatus(
+                0,
+            ),
+        ),
+        stdout: "/home/sp1ff\n",
+        stderr: "",
+    @},
+)
+[2020-12-12T15:26:19.628778521-08:00][mpdpopm] No database update needed
+[2020-12-12T15:26:19.628817190-08:00][mpdpopm] No more commands to process.
+@end example
+
+At this point @code{mppopmd} is just sitting around, waiting for
+something to happen. Bring up your favorite MPD client & start playing
+a track. That should induce some activity:
+
+@example
+[2020-12-12T15:26:29.522581696-08:00][mpdpopm::clients] Sent idle message; got `changed: player
+OK
+'.
+[2020-12-12T15:26:29.522756287-08:00][mpdpopm] subsystem Player changed
+[2020-12-12T15:26:29.527064915-08:00][mpdpopm::playcounts] Updating status: 0.000% complete.
+...
+[2020-12-12T15:28:19.653519123-08:00][mpdpopm::playcounts] Updating status: 60.698% complete.
+[2020-12-12T15:28:19.653569350-08:00][mpdpopm::playcounts] Increment play count for 'M/Miles Davis - Boplicity.mp3' (songid: 262) at 0.6069790770994554 played.
+[2020-12-12T15:28:19.661696678-08:00][mpdpopm::clients] Sent message `sticker get song "M/Miles Davis - Boplicity.mp3" "unwoundstack.com:playcount"'; got `sticker: unwoundstack.com:playcount=3
+OK
+'
+[2020-12-12T15:28:19.661743547-08:00][mpdpopm::playcounts] Current PC is 3.
+[2020-12-12T15:28:19.770956673-08:00][mpdpopm::clients] Sent `sticker set song "M/Miles Davis - Boplicity.mp3" "unwoundstack.com:lastplayed" "1607815699"'; got `OK
+'
+[2020-12-12T15:28:19.868244915-08:00][mpdpopm::clients] Sent `sticker set song "M/Miles Davis - Boplicity.mp3" "unwoundstack.com:playcount" "4"'; got `OK
+'
+...
+@end example
+
+In this example, @code{mppopmd} noticed that "Boplicity" by Miles
+Davis started playing; when it was played 60% of the way through, the
+daemon updated the play count from 3 to 4 & set the last played
+timestamp.
+
+Once things seem to be working, you might consider removing the
+@option{-F} flag & running @code{mppopmd} as a proper
+daemon. @code{mpdopm} ships with a sample systemd unit.
+
+@node Setting up mppopm
+@subsection Setting up mppopm
+
+On it's own, @code{mppopmd} will happily sit in the background,
+monitoring playback & keeping play counts & last-played timestamps
+up-to-date. In order to rate a song, or indeed to @emph{do} anything
+with the information that's being accumulated, the user will need to
+induce their favorite MPD client to send the relevant commands
+(@pxref{mppopmd Commands}) to the @code{mppopmd} commands channel
+(@pxref{mppopmd Configuration}), or fire-up something like
+@code{netcat} and start entering the commands manually.
+
+Since neither of those options are likely to be convenient,
+@code{mpdpopm} ships with a small, purpose-built MPD client:
+@code{mppopm} (@pxref{mppopm Commands}).
+
+@c Generate the nodes for this menu with `C-c C-u C-m'.
+@menu
+* mppopm Configuration::
+@end menu
+
+@node mppopm Configuration
+@subsubsection mppopm Configuration
+
+@cindex configuration, mppopm
+
+The @code{mppopm} CLI needs to know where to find the MPD daemon, as
+well as the names of the @code{mpdpopm} commands channel & sticker
+names. These configuration items all have default values.  They may
+also be specified on the command line, a configuration file, or an
+environment variable. The order of presendence is:
+
+@enumerate
+
+@item
+command-line arguments
+
+@item
+the configuration file
+
+@item
+environment
+
+@end enumerate
+
+The configuration file defaults to @command{~/.mppopm}, but may be
+specified on the command line. Like that of @code{mppopmd}, it is a
+LISP S-expression, where each item is a cons cell.
+
+The @code{mppopm} configuration items:
+
+@itemize
+
+@item
+@option{host}: The host on which MPD is listening; defaults to ``localhost'',
+command-line option @option{-H}, environment variable @code{MPD_HOST}
+
+@item
+@option{port}: The port at which MPD is listening; defaults to 6600,
+command-line option @option{-p}, environment variable @code{MPD_PORT}
+
+@item
+@option{commands_chan}: The commands channel to which your
+@code{mppopmd} daemon is subscribed (i.e. should match the
+@option{commands_chan} setting in your daemon's configuration);
+defaults to ``unwoundstack.com:commands''. No command-line option or
+environment variable.
+
+@item
+@option{playcount_sticker}: The sticker name being used by your
+@code{mppopmd} daemon to store playcounts (i.e. should match the
+daemon's configuration item of the same name); defaults to
+``unwoundstack.com:playcount''. No command-line option or environment
+variable.
+
+@item
+@option{lastplayed_sticker}: The sticker name being used by your
+@code{mppopmd} daemon to store last-played timestamps (i.e. should
+match the daemon's configuration item of the same name); defaults to
+``unwoundstack.com:lastplayed''. No command-line option or environment
+variable.
+
+@item
+@option{rating_sticker}: The sticker name being used by your
+@code{mppopmd} daemon to store ratings (i.e. should match the daemon's
+configuration item of the same name); defaults to
+``unwoundstack.com:rating. No command-line option or environment
+variable.
+
+@end itemize
+
+@node The commands
+@chapter The commands
+
+@c Generate the nodes for this menu with `C-c C-u C-m'.
+@menu
+* mppopm Commands::
+* mppopmd Commands::
+@end menu
+
+@node mppopm Commands
+@section mppopm Commands
+
+@code{mppopm} supports a number of sub-commands for carrying out
+various operations related to @code{mpdpopm}. You can always see the
+complete list of sub-commands your particular build of @code{mppopm}
+supports by saying @command{mppopm --help}, and get detailed help on a
+particular sub-command by saying @command{mppopm SUB-COMMAND --help}.
+
+@c Generate the nodes for this menu with `C-c C-u C-m'.
+@menu
+* @code{mppopm} Rating Commands::
+* @code{mppopm} Play Count Commands::
+* @code{mppopm} Last Played Commands::
+* @code{mppopm} Filter Commands::
+@end menu
+
+@node @code{mppopm} Rating Commands
+@subsection @code{mppopm} Rating Commands
+
+@cindex commands, rating
+
+@code{mppopm} can be used to set & retrieve ratings for your music
+library. It can also be used to filter on the basis of rating
+@ref{@code{mppopm} Filter Commands}.
+
+@command{mppopm get-rating} will retrieve the current song's rating &
+print it on @code{stdout}. @command{mppopm get-rating URI} will
+interpret ``URI'' as an MPD song URI & display it's rating on
+@code{stdout}. @command{mppopm get-rating URI...} will do the same for
+multiple songs. Ratings are expressed as an integer between 0 & 255
+inclusive, with the convention that a rating of zero denotes
+``un-rated''.
+
+@command{mppopm set-rating ARG} will set the current song's rating to
+``ARG''.  ``ARG'' may be an integer between 0 & 255, or it may be
+expressed as one to five ``stars'': ``*'' deontes one star, ``**'' two
+stars and so forth.  ``Stars'' are mapped to numeric ratings as per
+@url{http://forums.winamp.com/showpost.php?p=2903240&postcount=94,
+Winamp}:
+
+@table @asis
+
+@item *
+1
+
+@item **
+64
+
+@item ***
+128
+
+@item ****
+196
+
+@item *****
+255
+
+@end table
+
+Finally, @command{mppopm set-rating ARG SONG} will interpret ``SONG''
+as a song URI & set that song's rating to ``ARG''.
+
+@node @code{mppopm} Play Count Commands
+@subsection @code{mppopm} Play Count Commands
+
+@cindex commands, play count
+
+@command{mppopm get-pc} will print the play count of the current song
+on @code{stdout}. @command{mppopm get-pc ARG} will interpret ``ARG''
+as a song URI & print that song's play count to @code{stdout}.
+@command{mppopm get-pc ARG...} will print the play count for each
+argument on @code{stdout}.
+
+@command{mppopm set-pc ARG} will set the play count for the current
+song to ``ARG'', where ``ARG'' is an unsigned integer. @command{mppopm
+set-pc ARG SONG} will set the play count for ``SONG'' to ``ARG''.
+
+@node @code{mppopm} Last Played Commands
+@subsection @code{mppopm} Last Played Commands
+
+@cindex commands, last played
+
+@command{mppopm get-lp} will print the last played time of the current
+song in seconds since Unix epoch on @code{stdout}. @command{mppopm
+get-lp ARG} will interpret ``ARG'' as a song URI & print that song's
+last played timestamp to @code{stdout}.  @command{mppopm get-lp
+ARG...} will print the last played timestamp for each argument on
+@code{stdout}.
+
+@command{mppopm set-lp ARG} will set the last played timestamp for the
+current song to ``ARG'', where ``ARG'' is an unsigned integer
+interpreted as seconds since Unix epoch. @command{mppopm set-lp ARG
+SONG} will set the last played timestamp for ``SONG'' to ``ARG''.
+
+@node @code{mppopm} Filter Commands
+@subsection @code{mppopm} Filter Commands
+
+@cindex commands, filters
+
+Having accumulated play counts, ratings &c in one's sticker database
+one can now begin acting on that information. For instance, here is a
+bash shell script to add all un-rated songs to the play queue:
+
+@example
+exec 3<>/dev/tcp/localhost/6600;
+head -1 <&3
+
+declare -A rated
+last_file=""
+echo "sticker find song \"\" unwoundstack.com:rating" >&3
+while true; do
+    read -r -u 3 line
+    case $line in
+        OK*)
+            break;;
+        ACK*)
+            echo "$line" >&2;
+            exit 1;;
+        file:*)
+            last_file="$@{line:6@}";;
+        sticker:*)
+            rated["$last_file"]="$@{line:33@}";
+            last_file="";;
+        *)
+            echo "error: $line" >&2;
+            exit 1;;
+    esac
+done
+
+exec 4<>/dev/tcp/localhost/6600;
+head -1 <&4
+echo "command_list_begin" >&4
+
+echo "listall" >&3
+while true; do
+    read -r -u 3 line
+    case $line in
+        OK*)
+            break;;
+        ACK*)
+            echo "$line" >&2;
+            exit 1;;
+        file:*)
+            if test -z "$@{rated[$@{line:6@}]@}" -o "$@{rated[$@{line:6@}]@}" == "0"; then
+                echo "adding $@{line:6@}"
+                echo "add \"$@{line:6@}\"" >&4
+            fi;;
+    esac
+done
+
+exec 3<&-
+echo "command_list_end" >&4
+head -1 <&4
+exec 4<&-
+@end example
+
+In search of a more ergonomic way to make use of this information,
+@code{mpdpopm} now has support for
+filters. @url{https://www.musicpd.org/doc/html/protocol.html#filters,
+Filters} are an MPD feature for searching one's song database; one can
+select songs for various operations by filters such as ``(artist =~
+'pogues')'', for instance. @code{mpdpopm}'s contribution is to extend
+the MPD filter syntax to add ratings, play counts & last-played
+timestamps (``rating'', ``playcount'' & ``lastplayed'' resp.) to the
+filter syntax.
+
+The first two filter-related commands added to @code{mppopm} are
+@command{searchadd} and @command{findadd}. Each accepts a filter as an
+argument and adds the selected songs to the the play queue. The only
+difference is that @command{searchadd} works case-insensitively &
+@command{findadd} respects case.
+
+Consequently, the shell script above can now be replaced by
+the command @command{mppopm findadd ``(rating == 0)''}. NB. filter
+syntax requires textual values to be quoted, so you'll need to escape
+them for the shell. For instance, to select songs with an artist like
+``pogues'', the filter syntax would be (artist =~ ``pogues''), so
+to specify this on the command line, you would have to escape the double
+quotes: @command{mppopm searchadd ``(artist =~ \"pogues\")''}.
+
+See below for a detailed description of filter syntax & quoting
+issues.
+
+@c Generate the nodes for this menu with `C-c C-u C-m'.
+@menu
+* mppopm Filter Syntax::
+* mppopm Filter Quoting::
+@end menu
+
+@node mppopm Filter Syntax
+@subsubsection @code{mppopm} Filter Syntax
+
+@cindex filters, syntax
+
+The @code{mpdpopm} filter syntax is a (small) superset of the MPD
+@url{https://www.musicpd.org/doc/html/protocol.html#filters,
+syntax}. The following is a grammar for filter expressions in
+modified BNF:
+
+@example
+<expr> ::= <term> | <negation> | <conjunction> | <disjunction>
+           
+<term> ::= "(" <comparison> ")"
+
+<negation> ::= "(" "!" <expr> ")"
+
+<conjunction> ::= "(" <conj-list> ")"
+
+<conj-list> ::= <expr> "AND" <expr> |
+                <expr> "AND" <conj-list>
+
+<disjunction> ::= "(" <disj-list> ")"
+
+<disj-list> ::= <expr> "OR" <expr> |
+                <expr> "OR" <disj-list>
+
+<comparison> ::= <tag> <op> <qtext>                             |
+                 "file" "==" <qtext>                            |
+                 "base" <qtext>                                 |
+                 "modified-since" <qtext>                       |
+                 "AudioFormat" <audio-format-op> <audio-format> |
+                 <mpdpopm-numeric-tag> <numeric-op> <number>    |
+                 "lastplayed" <numeric-op> <date-or-epoch>
+
+<tag> ::= "artist" | "artistsort" | "album" | "albumsort" |
+          "albumartist" | "albumartistsort" | "title" | "track" |
+          "name" | "genre" | "date" | "originaldate" | "composer" |
+          "performer" | "conductor" | "work | "grouping" | "comment" |
+          "disc" | "label" | "musicbrainz_artistid" |
+          "musicbrainz_albumid" | "musicbrainz_albumartistid" |
+          "musicbrainz_trackid" | "musicbrainz_releasetrackid" |
+          "musicbrainz_workid"
+
+<op> ::= "==" | "!=" | "contains" | "=~" | "!~"
+
+<audio-format-op> ::= "==" | "=~"
+
+<audio-format> ::= "'" <samplerate>:<bits>:<channels> "'"
+
+<mpdpopm-numeric-tag> ::= "rating" | "playcount"
+
+<numeric-op> ::= "==" | "!=" | "<" | "<=" | ">" | ">="
+
+<number> ::= [0-9]+
+
+<qtext> ::= text enclosed in either single- or double-quotes; if the text
+            contains single- or double-quotes, or backslashes, they shall
+            be backslash-escaped
+
+<date-or-epoch> ::= either <number> or a single- or double-quoted ISO
+                    8601 timestamp
+@end example
+
+In the above grammar, the non-terminals @code{<samplerate>},
+@code{<bits>}, and @code{<channels>} are undefined; please see the MPD
+@url{https://www.musicpd.org/doc/html/user.html#audio-output-format,
+manual} for details on how to specify them.
+
+Note that tags are matched without regard to case; for consistency's
+sake, @code{mpdpopm}-defined attributes are also matched
+case-insensitively.
+
+For a detailed description of how tags are matched, also please see
+the MPD @url{https://www.musicpd.org/doc/html/protocol.html#tags,
+manual}, since @code{mpdpopm} delegates the evaluation of all terms
+already supported by MPD to thereto.
+
+@node mppopm Filter Quoting
+@subsubsection @code{mppopm} Filter Quoting
+
+@cindex filters, quoting
+
+The non-terminal @code{qtext} appears frequently in the @code{mpdpopm}
+filter grammar (@pxref{mppopm Filter Syntax}). These textual tokens
+are required to be enclosed in quotation marks, either by single-quote
+or a double-quote characters (ASCII characters 39 or 34, respectively;
+cf.
+@url{https://github.com/MusicPlayerDaemon/MPD/blob/master/src/song/Filter.cxx#L169,
+ExpectQuoted} in the MPD codebase) This brings up the question of how
+to represent single- or double-quotes inside the quoted text. MPD
+employs the time-honored tradition of ``escaping'' them with a
+backslash character (ASCII character 92).  This then implies that
+@emph{backslashes} in the quoted text must themselves be
+backslash-escaped.
+
+For example, to test against the text
+
+@example
+foo\bar''
+@end example
+
+using double-quotes, we would enclose the text in @code{"} characters,
+and backslash-escape any @code{"}, @code{'}, and @code{\} characters
+therein, to obtain
+
+@example
+"foo\\bar\""
+@end example
+
+We could also choose to quote the text using single-quotes in the same
+manner:
+
+@example
+'foo\\bar\"'
+@end example
+
+Tragically, to use this text in a filter in the shell with
+@code{mppopm}, we will need to @emph{again} quote the text in order to
+protect special characters therein from the shell.
+
+Let us suppose we had songs by the pathologically named artist
+foo\bar''. A properly quoted filter expression would be:
+
+@example
+(artist == "foo\\bar\"")
+@end example
+
+To invoke this on the command line, however, we would need to quote
+the filter itself (to make it into a single argument for
+@code{mppopm}), which would require quoting the entire filter:
+
+@example
+mppopm findadd "(artist =~ \"foo\\\\bar\\\"\")"
+@end example
+
+In this particular case, quoting the filter using single-quotes
+might be simpler
+
+@example
+mppopm findadd '(artist == "foo\\bar\"")'
+@end example
+
+If the artist name contained a single-quote, e.g.
+
+@example
+foo'bar
+@end example
+
+We could quote it using @code{"}s
+
+@example
+(artist =~ "foo\'bar")
+@end example
+
+but to express this in the shell we would need to protect the
+single-quote from bash:
+
+@example
+mppopm findadd '(artist =~ "foo\'"'"'bar")'
+@end example
+
+Quoting the artist name using @code{'}s, and protecting @emph{that}
+from the shell is left as an exercise for the reader.
+
+@node mppopmd Commands
+@section mppopmd Commands
+
+@cindex commands, mppopmd
+
+This section discusses @code{mppopmd} command syntax & will be of
+interest only to authors of MPD clients that want to communicate
+with @code{mppopmd}.
+
+Clients can invoke @code{mppopmd} commands via the
+@url{https://www.musicpd.org/doc/html/protocol.html#client-to-client,
+sendmessage} MPD command to the @code{mppopmd} commands channel, e.g.
+
+@example
+$>: nc localhost 6600
+OK MPD 0.22.0
+sendmessage unwoundstack.com:commands "rate 255"
+OK
+@end example
+
+@c Generate the nodes for this menu with `C-c C-u C-m'.
+@menu
+* Quoting::
+* Supported Commands::
+@end menu
+
+@node Quoting
+@subsection Quoting
+
+@cindex filters, quoting (mppopmd)
+
+The sendmessage command takes two string arguments: the channel & the
+message.  Both must be quoted according to the rules of the MPD
+protocol. Per the MPD
+@url{https://www.musicpd.org/doc/html/protocol.html#requests, manual},
+``If arguments contain spaces, they should be surrounded by double
+quotation marks''.
+
+More generally, in the MPD protocol:
+
+@enumerate
+
+@item
+an un-quoted token may contain any printable ASCII character except
+space, tab, @code{'} & @code{"}
+
+@item
+to include spaces, tabs, @code{'}-s or @code{"}-s, the token must be
+enclosed in @code{"}-s, and any @code{"}-s or @code{\}-s therein must
+be backslash escaped. NB. @code{'}s need @emph{not} be escaped, if
+they occur within a quoted string (although doing so is harmless)
+
+@end enumerate
+
+Since @code{mppopmd} commands generally take arguments, they will
+contain spaces, and hence need to be quoted. For instance, the
+``rate'' command above takes at least one argument (the rating)
+and so the text ``rate 255'' had to be enclosed in double-quotes.
+
+Commands that take filters as arguments will not only contain spaces,
+but also @code{"}s and/or @code{'}s and possible backslashes, so
+quoting will be more
+involved. Cf. @url{https://github.com/MusicPlayerDaemon/libmpdclient/blob/master/src/quote.c#L59,
+libmpdclient} for a reference implemenation of the quoting algorithm.
+
+As a worked example, suppose we wanted to send the findadd command with
+the (filter) argument of:
+
+@example
+(artist =~ 'foo\'bar')
+@end example
+
+The filter itself needs to be quoted to make it a single parameter:
+
+@example
+"(artist =~ \'foo\\\'bar\')"
+@end example
+
+Giving us a command of
+
+@example
+findadd "(artist =~ \'foo\\\'bar\')"
+@end example
+
+This contains spaces, so we wrap it in double-quotes and escape all
+special characters therein, giving us the final message as it would
+appear on the wire:
+
+@example
+sendmessage unwoundstack.com:commands "findadd \"(artist =~ \\\'foo\\\\\\\'bar\\\')\""
+@end example
+
+See also
+@url{https://github.com/MusicPlayerDaemon/MPD/blob/master/src/util/Tokenizer.cxx#L170,
+here} for the MPD parsing logic.
+
+@node Supported Commands
+@subsection Supported Commands
+
+@code{mppopmd} supports the following commands:
+
+@itemize
+
+@item
+@code{rate}: ``rate RATING( TRACK)?'' set the rating to RATING for TRACK if it
+is given, or the current track if it is not. If TRACK is given, it will be
+interpreted as a song URI.
+
+@item
+@code{setpc}: ``setpc PC( TRACK)?'' set the play count to PC for TRACK if it
+is given, or the current track if it is not. If TRACK is given, it will be
+interpreted as a song URI.
+
+@item
+@code{setlp}: ``setlp LP( TRACK)?'' set the last-played timestamp to
+LP for TRACK if it is given, or the current track if it is not. If
+TRACK is given, it will be interpreted as a song URI.
+
+@item
+@code{findadd}: ``findadd FILTER'' apply FILTER in a case-sensitive manner
+and add all matching songs to the play queue
+
+@item
+@code{searchadd}: ``searchadd FILTER'' apply FILTER in a
+case-insensitive manner and add all matching songs to the play queue
+
+@end itemize
+
+@node Advanced Usage
+@chapter Advanced Usage
+
+@c Generate the nodes for this menu with `C-c C-u C-m'.
+@menu
+* Keeping Your Tags Up-to-date::
+* Generalized Commands::
+@end menu
+
+@node Keeping Your Tags Up-to-date
+@section Keeping Your Tags Up-to-date
+
+@cindex tags
+
+It may be that the information managed by @code{mpdpopm} is replicated
+in other locations. For instance, the author has play counts
+@emph{also} recorded in the @code{PCNT} & @code{POPM} frames of the
+ID3 tags attached to his music files, and ratings in the @code{POPM}
+frame, as well. For that reason, @code{mppopmd} has the ability to run
+arbitrary commands after updating stickers. This feature was developed
+for the purpose of keeping ID3 tags up-to-date, but one could do
+anything (pop up a notification, update a database &c).
+
+The operations of rating a song and of updating its play count (and
+associated last played timestamp) may be configured to run an
+arbitrary program whenever they are carried out. The two salient
+options are @option{rating_command} and @option{playcount_command},
+respectively.  If present in the @code{mppopmd} configuration, they
+should be the absolute path to the program to be executed.
+
+Each has a partner option specifying the parameters that will be
+supplied to the program when it is run (@option{rating_command_args}
+and @option{playcount_command_args}, respectively). These options
+shall be lists of command-line arguments to be provided, specified as
+strings. Each may specify an argument of ``%full-file'' which will, on
+command execution, be expanded by @code{mppopmd} to the absolute path
+of the song being operated upon.
+
+@option{rating_command_args} may also make use of the ``%rating''
+replacement parameter which will be expanded to the rating being
+applied (expressed as an integer between 0 & 255 inclusive expressed
+in base 10).
+
+@option{playcount_command_args} may also employ the ``%playcount''
+replacement parameter which will be the new play count (again expressed
+as an integer in base 10).
+
+For example, the author has written an ID3 tagging utility called
+@url{https://github.com/sp1ff/scribbu, scribbu} which he uses
+to keep his ID3 tags up-to-date. The following two lines, placed
+in the @code{mppopmd} configuration file, will cause it to invoke
+the command @command{/home/sp1ff/bin/scribbu popm -a -A -b -o sp1ff@@pobox.com -C %playcount %full-file} every time it updates the play count sticker:
+
+@lisp
+(playcount_command . "/home/sp1ff/bin/scribbu")
+(playcount_command_args . ("popm" "-a" "-A" "-b" "-o" "sp1ff@@pobox.com" "-C" "%playcount" "%full-file"))
+@end lisp
+
+The tokens @code{%playcount} & @code{%full-file} will be replaced with
+the new play count and the absolute path to the file backing the
+current song, respectively.
+
+@node Generalized Commands
+@section Generalized Commands
+
+@cindex commands, generalized
+
+The idea of executing arbitrary commands proved useful enough that
+mpdpopm generalized it: the user can configure arbitrary server-side
+commands in response to messages received on the @code{mppopmd}
+commands channel. As an example, an entry in the configuration file
+like this:
+
+@lisp
+  (gen_cmds .
+            (((name . "set-genre")
+              (formal_parameters . (Literal Track))
+              (default_after . 1)
+              (cmd . "/home/sp1ff/bin/scribbu")
+              (args . ("genre" "-a" "-C" "-g" "%1" "%full-file"))
+              (update . TrackOnly)))
+@end lisp
+
+will define a new command ``set-genre'', with two parameters, the
+second of which can be omitted (it will default to the current
+track). When =mppopmd= receives this command (i.e. when a client says
+something like:
+
+@example
+sendmessage unwoundstack.com:commands "set-genre Rock"
+@end example
+
+@code{mppopmd} will invoke @command{scribbu} like so:
+
+@example
+/home/sp1ff/scribbu genre -a -C -g Rock "$@{music-dir@}/$@{song URI@}"
+@end example
+
+where the "psuedo-variables" @code{music-dir} and @code{song URI}
+above will be replaced with the configured music directory and the
+current song's URI.
+
+The configuration is perforce more complex because we have to, at
+configuration-time, define a mapping between the actual parameters
+supplied by a client in the message to ``unwoundstack.com:commands''
+and the replacement parameters used in the command arguments. The
+command's replacement parameters are defined by a simple list, given
+in @code{formal_parameters}, of parameter types. At this time, there
+are only two formal parameter types:
+
+@enumerate
+
+@item
+Literal: the actual parameter shall be copied verbatim into the
+replacement parameters, under the name ``%i'' where i is the one-based
+index of this formal parameter, expressed in base ten
+
+@item
+Track: the actual parameter will be interpreted as a song URI; it
+again may be referred in the replacement parameters as ``%i''. Only
+one Track argument may appear in the list of formal parameters.
+
+@end enumerate
+
+Actual parameters after index @option{default_after} (counting from
+one) are optional; if not specified the replacement parameter will
+take the default value for its type (the empty string for literals,
+the currently playing song's URI for tracks).
+
+Two additional parameters are available:
+
+@enumerate
+
+@item
+current-file:: the absolute path to the currently playing track (if any)
+
+@item
+full-file :: if the list of formal parameters contains a Track
+argument in slot i, the actual parameter will be interpreted as a song
+URI, ``%i'' will return the absolute path to that file (i.e. with
+@code{music_dir} prepended to the actual argument), as will
+@code{%full-file}
+
+@end enumerate
+
+Finally, some commands (such as @command{set-genre}, above) may change
+your music collection in such a way as to necessitate an MPD database
+update after they complete. The @option{update} configuration item
+governs that: it may be set to "NoUpdate", "TrackOnly", or
+"FullDatabase" to indicate that this command will require no update,
+an update to the song named by the Track parameter only, or the full
+database, respectively.
+
+@node Sample Configuration File
+@chapter Sample Configuration File
+
+@lisp
+((log . "/home/mgh/var/log/mppopmd.log")
+ (host . "192.168.1.6")
+ (port . 6600)
+ (local_music_dir . "/mnt/Took-Hall/mp3")
+ (playcount_sticker . "unwoundstack.com:playcount")
+ (lastplayed_sticker . "unwoundstack.com:lastplayed")
+ (played_thresh . 0.6)
+ (poll_interval_ms . 5000)
+ (playcount_command . "/usr/local/bin/scribbu")
+ (playcount_command_args . ("popm" "-v" "-a" "-A" "-b" "-o" "sp1ff@@pobox.com" "-C" "%playcount" "%full-file"))
+ (commands_chan . "unwoundstack.com:commands")
+ (rating_sticker . "unwoundstack.com:rating")
+ (ratings_command . "/usr/local/bin/scribbu")
+ (ratings_command_args . ("popm" "-v" "-a" "-A" "-b" "-o" "sp1ff@@pobox.com" "-r" "%rating" "%full-file"))
+ (gen_cmds .
+           (((name . "set-genre")
+             (formal_parameters . (Literal Track))
+             (default_after . 1)
+             (cmd . "/usr/local/bin/scribbu")
+             (args . ("genre" "-a" "-C" "-g" "%1" "%full-file"))
+             (update . TrackOnly))
+            ((name . "set-xtag")
+             (formal_parameters . (Literal Track))
+             (default_after . 1)
+             (cmd . "/usr/local/bin/scribbu")
+             (args . ("xtag" "-a" "-o" "sp1ff@@pobox.com" "-T" "%1" "%full-file"))
+             (update . TrackOnly))
+            ((name . "merge-xtag")
+             (formal_parameters . (Literal Track))
+             (default_after . 1)
+             (cmd . "/usr/local/bin/scribbu")
+             (args . ("xtag" "-m" "-o" "sp1ff@@pobox.com" "-T" "%1" "%full-file"))
+             (update . TrackOnly)))))
+
+@end lisp
+
+@node Index
+@unnumbered Index
+
+@printindex cp
+
+@bye
+
+@c mpdpopm.texi ends here

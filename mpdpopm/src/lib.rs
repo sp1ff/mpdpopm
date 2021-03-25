@@ -333,7 +333,7 @@ pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
                 )
                 .await
             {
-                error!("{}", err);
+                error!("Error while processing messages: {}", err);
             }
         }
     } // End `while'.

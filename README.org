@@ -2,18 +2,38 @@
 #+AUTHOR: Michael Herstine
 #+DESCRIPTION: mpdpopm
 #+EMAIL: sp1ff@pobox.com
-#+DATE: <2021-03-28 Sun 17:40>
+#+DATE: <2021-03-28 Sun 17:44>
 #+AUTODATE: t
 
 * Introduction
 
-[[https://github.com/sp1ff/mpdpopm][mpdpopm]] provides a companion daemon to [[https://www.musicpd.org/][mpd]] for maintaining play counts, ratings and last-played timestamps, along with an associated CLI for talking to the daemon. Similar to [[https://github.com/vincent-petithory/mpdfav][mpdfav]], but written in Rust (which I prefer to Go), it will maintain this information in your sticker database. Along the lines of [[https://alip.github.io/mpdcron][mpdcron]], it will also allow you to keep that information up-to-date in your tags by invoking external (user-provided & -configured) commands.
+[[https://github.com/sp1ff/mpdpopm][mpdpopm]] provides a companion daemon to [[https://www.musicpd.org/][MPD]] for maintaining play counts, ratings and last-played timestamps, along with an associated CLI for talking to the companion daemon. Similar to [[https://github.com/vincent-petithory/mpdfav][mpdfav]], but written in Rust (which I prefer to Go), it will maintain this information in your sticker database. Along the lines of [[https://alip.github.io/mpdcron][mpdcron]], it will also allow you to keep that information up-to-date in your tags by invoking external (user-provided & -configured) commands.
+
+This README focuses on obtaining & installing [[https://github.com/sp1ff/mpdpopm][mpdpopm]]; the user manual is distributed with the package in [[https://www.gnu.org/software/texinfo/][Texinfo]] format. The HTML version of the user manual is hosted on my personal [[https://www.unwoundstack.com/doc/mpdpopm/curr][site]].
+
+* What Can You Do With It?
+
+Once you've [[#installing][installed]] & [[#getting_started][started]] [[https://github.com/sp1ff/mpdpopm][mpdpopm]], its daemon (=mppopmd=) will sit in the background noting the songs you play and updating play counts & last played timestamps in your [[https://www.musicpd.org/][MPD]] sticker database. If you'd like to rate a song, you can send =mppopmd= a message using your favorte MPD client, or with the =mppopm= CLI that comes along with this package; =mppopmd= will note the rating, as well.
+
+If you'd like to make use of this information in your song selection, you can ask =mppopmd= to queue-up songs on this basis by saying things like:
+
+#+BEGIN_SRC bash
+mppopm findadd "(rating > 128)"
+#+END_SRC
+
+to add all songs with a rating greater than 128 to the play queue, or
+
+#+BEGIN_SRC bash
+mppopm findadd "(lastplayed <= \"2020-03-27\")"
+#+END_SRC
+
+to add all songs that haven't been played in the last year.
 
 * Prerequisites
 
-[[https://www.musicpd.org/][Music Player Daemon]]: "Music Player Daemon (MPD) is a flexible, powerful, server-side application for playing music. Through plugins and libraries it can play a variety of sound files while being controlled by its network protocol." If you're reading this, I assume you're already running MPD, so this document won't have much to say on installing & configuring it.
+[[https://www.musicpd.org/][Music Player Daemon]]: "Music Player Daemon (MPD) is a flexible, powerful, server-side application for playing music. Through plugins and libraries it can play a variety of sound files while being controlled by its network protocol." If you're reading this, I assume you're already running MPD, so this document won't have much to say on installing & configuring it other than that you *do* need to setup the sticker database by setting =sticker_file= in your configuration.
 
-If you choose to use the pre-built binaries or the Debian package (available under [[https://github.com/sp1ff/mpdpopm/releases][releases]]), that's all you'll need-- you can jump ahead to the section entitled [[#getting_started][Installing]], below.
+If you choose to use the pre-built binaries or the Debian or Arch packages (available under [[https://github.com/sp1ff/mpdpopm/releases][releases]]), that's all you'll need-- you can jump ahead to the section entitled [[#getting_started][Installing]], below.
 
 If you would prefer to download [[https://github.com/sp1ff/mpdpopm][mpdpopm]] from [[https://crates.io/crates/mpdpopm][crates.io]], you'll need need the [[https://www.rust-lang.org/tools/install][Rust]] toolchain ("Rust is a memory- & thread-safe language with no runtime or garbage collector"). Installing the toolchain is easy:
 
@@ -21,7 +41,7 @@ If you would prefer to download [[https://github.com/sp1ff/mpdpopm][mpdpopm]] fr
 curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
 #+END_SRC
 
-[[https://github.com/sp1ff/mpdpopm][mpdpopm]] is also available as an Autotools source distribution (also under [[https://github.com/sp1ff/mpdpopm/releases][releases]]), and of course you can just clone the repo & build the project from source. In either of those two cases you'll need the Gnu [[https://www.gnu.org/software/automake/manual/html_node/Autotools-Introduction.html][Autotools]] installed in addition to Rust. Again, if you're considering that route, I assume you're familiar with the Autotools & won't say much about them here.
+[[https://github.com/sp1ff/mpdpopm][mpdpopm]] is also available as an Autotools source distribution (also under [[https://github.com/sp1ff/mpdpopm/releases][releases]]), and of course you can just clone the repo & build the project from source. In either of those two cases you'll need the Gnu [[https://www.gnu.org/software/automake/manual/html_node/Autotools-Introduction.html][Autotools]] installed in addition to Rust. In the former case, grab the tarball in the format of your choice & perform the usual "./configure && make && make install" incantation. In the latter, you'll need to invoke "./bootstrap" after you clone the repo. Again, if you're considering that route, I assume you're familiar with the Autotools & won't say much about them here.
 
 * Installing
   :PROPERTIES:
@@ -36,10 +56,10 @@ Thanks  to a suggestion by [[https://github.com/m040601][m040601]], you can down
 
 #+BEGIN_SRC bash
 cd /tmp
-curl -L --output mpdpopm-0.2.2.tar.gz https://github.com/sp1ff/mpdpopm/releases/download/0.2.2/mpdpopm-0.2.2-x86_64-unknown-linux.tar.gz
-tar xf mpdpopm-0.2.2.tar.gz
-tree mpdpopm-0.2.2-x86_64-unknown-linux/
-mpdpopm-0.2.2-x86_64-unknown-linux/
+curl -L --output mpdpopm-0.2.3.tar.gz https://github.com/sp1ff/mpdpopm/releases/download/0.2.3/mpdpopm-0.2.3-x86_64-unknown-linux.tar.gz
+tar xf mpdpopm-0.2.3.tar.gz
+tree mpdpopm-0.2.3-x86_64-unknown-linux/
+mpdpopm-0.2.3-x86_64-unknown-linux/
 ├── bin
 │   ├── mppopm
 │   └── mppopmd
@@ -51,9 +71,10 @@ mpdpopm-0.2.2-x86_64-unknown-linux/
     ├── README.org
     ├── THANKS
     ├── mppopmd.conf
+    ├── mppopmd.info
     └── mppopmd.service
 
-2 directories, 8 files
+2 directories, 10 files
 #+END_SRC
 
 Copy the binaries =mppopmd= (the daemon) and =mppopm= (the CLI) to a convenient place (e.g. =/usr/local/bin= or =$HOME/.local/bin=) and proceed to [[#getting_started][Getting Started]], below.
@@ -68,8 +89,20 @@ If you're running on a Debian-based Linux distribution, and you're on an x86_64 
 
 #+BEGIN_SRC bash
 cd /tmp
-curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.2.2/mpdpopm_0.2.2_amd64.deb
-sudo dpkg -i mpdpopm_0.2.2_amd64.deb
+curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.2.3/mpdpopm_0.2.3_amd64.deb
+sudo dpkg -i mpdpopm_0.2.3_amd64.deb
+#+END_SRC
+
+The binaries will be placed in =/usr/local/bin=, and you can proceed to [[#getting_started][Getting Started]], below.
+
+** Use the Arch package
+
+If you're running on an Arch-based Linux distribution, and you're on an x86_64 processor, I've begun providing a Arch binary package. Just do:
+
+#+BEGIN_SRC bash
+cd /tmp
+curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.2.3/mpdpopm_0.2.3-1-x86_64.pkg.tar.zst
+sudo pacman -U mpdpopm_0.2.3-1-x86_64.pkg.tar.zst
 #+END_SRC
 
 The binaries will be placed in =/usr/local/bin=, and you can proceed to [[#getting_started][Getting Started]], below.
@@ -80,16 +113,16 @@ If you've got the Rust toolchain as well as Autotools installed, you can build f
 
 #+BEGIN_SRC bash
 cd /tmp
-curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.2.2/mpdpopm-0.2.2.tar.xz
-tar xf mpdpopm-0.2.2.tar.xz
-cd mpdpopm-0.2.2
+curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.2.3/mpdpopm-0.2.3.tar.xz
+tar xf mpdpopm-0.2.3.tar.xz
+cd mpdpopm-0.2.3
 ./configure
 make
 make check
 sudo make install
 #+END_SRC
 
-All the usual =configure= options apply (=--prefix=, e.g.)
+All the usual =configure= options apply (=--prefix=, e.g.) In particular, you can say =--enable-debug= to produce debug builds.
 
 ** Building from source
 
@@ -112,6 +145,8 @@ Notice the call to =./bootstrap=, in this case.
   :CUSTOM_ID: getting_started
   :END:
 
+This README provides a "quick-start" guide to getting mpdpopm up & running. For detailed user docs, refer to the [[https://www.unwoundstack.com/doc/mpdpopm/curr][manual]].
+
 ** Program Structure
 
 [[https://github.com/sp1ff/mpdpopm][mpdpopm]] provides two programs:
@@ -119,19 +154,9 @@ Notice the call to =./bootstrap=, in this case.
   1. =mppopmd= is the companion daemon process
   2. =mppopm= is the associated command-line interface to the daemon
 
-They both make use of the =mpd= [[https://www.musicpd.org/doc/html/protocol.html][protocol]], a simple text-based protocol by which clients can communicate with the =mpd= daemon and with one another. From the perspective of =mpd=, =mppopm= & =mppopmd= are just new clients. Via this protocol =mppopmd= will monitor =mpd= for song playback & note when songs complete; this is how it knows to increment the playcount & update the last played timestamp for each song to which you listen. 
+=mppopmd= will monitor =mpd= for song playback & note when songs complete; this is how it knows to increment the playcount & update the last played timestamp for each song to which you listen. =mppopmd= records this information (i.e play counts, last played and ratings) using =mpd= [[https://www.musicpd.org/doc/html/protocol.html#stickers][stickers]]. A sticker is a little bit of textual information which clients can attach to songs in the form of a name-value pair. [[https://github.com/sp1ff/mpdpopm][mpdpopm]] defines a new sticker name for each of these items & udpates the values for each song when & as requested.
 
-Also via the protocol, =mpd= clients can communicate with one another by registering "channels" and subscribing to them; one client can send a message to a given channel, and all other clients subscribed to that channel will receive that message. In particular, if an =mpd= client sends the "rating" command to the =mppopmd= commands channel (the channel name is configurable, but defaults to "unwoundstack.com:commands"), =mppopmd= will set the rating for the given track.
-
-The mechanism by which =mppopmd= records this information (i.e play counts, last played and ratings) is =mpd= [[https://www.musicpd.org/doc/html/protocol.html#stickers][stickers]]. A sticker is a little bit of textual information which clients can attach to songs in the form of a name-value pair. [[https://github.com/sp1ff/mpdpopm][mpdpopm]] defines a new sticker name for each of these items & udpates the values for each song when & as requested.
-
-Of course, other =mpd= clients can't be aware of =mppopmd=, its command channel, or the stickers it sets: you the user will have to bridge that gap. You could of course just fire-up =netcat= & start sending commands, but that's not particularly convenient. That's where =mppopm= comes in. It is a small command-line tool for controlling [[https://github.com/sp1ff/mpdpopm][mpdpopm]] functionality; you could for instance say:
-
-#+BEGIN_SRC bash
-mppopm set-rating '*****'
-#+END_SRC
-
-to rate the current track at five stars. Under the hood, it connects to the =mpd= daemon, sends a "rating" message to the =mppopmd= commands channel, and =mppopmd=, in turn, tells =mpd= to set the rating sticker for the curren track to 255 (more on the rating system below).
+Of course, other =mpd= clients will not, in general, be aware of =mppopmd= or the stickers it sets: you the user will have to bridge that gap. You could of course just fire-up =netcat= & start sending commands over the MPD protocol using =sendmessage=, but that's not particularly convenient-- that's where =mppopm= comes in.  =mppopm= is the client interface; one can through it instruct =mppopmd= to set ratings, get & set the various stickers mpdpopm knows about, and even search for songs in terms of mpdpopm attributes & add them to the play queue.
 
 ** Getting Set-up
 
@@ -143,109 +168,15 @@ If you're reading this, I assume you already have MPD up & running, so this sect
   sticker_file "/home/sp1ff/lib/mpd/sticker.sql"
 #+END_EXAMPLE
 
-Check also that you have write access to the named file & its parent directory.
+Check also that the you have write access to the named file & its parent directory.
 
 *** mppopmd
 
-I haven't yet provided a =systemd= service unit, so you'll have to run the daemon process manually. That begins with preparing a configuration file, the installation of which I haven't implemented yet, either (so you'll have to do it by hand).
+The daemon depends on a configuration file that you'll need to provide. Most =mppopmd= configuration items have sensible defaults, but there are a few that will need to be customized to your MPD setup. A sample configuration file is provided with all distributions; see also the user [[https://www.unwoundstack.com/doc/mpdpopm/curr#mppopmd-Configuration][manual]] for detailed documentation.
 
-**** Configuration
+You'll likely want to run the program in the foreground initially for ease of trouble-shooting, but after that you'll probably want to run it as a daemon. Again see the [[https://www.unwoundstack.com/doc/mpdopmd/curr#mppopmd-as-a-Daemon][manual]] for detailed instructions.
 
-The configuration file _is_ optional, so you can skip this part if you like. However, if you want to customize the behavior of the [[https://github.com/sp1ff/mpdpopm][mpdpopm]] daemon, you'll need to set one up, so I've documented it here in the form of a worked example.
-
-The format is a LISP S-expression in which individual, top-level items are expressed as cons cells:
-
-#+BEGIN_SRC elisp
-  ((log . "/home/sp1ff/var/log/mppopmd.log")
-   (host . "192.168.1.6")
-   (port . 6600)
-   (local_music_dir . "/mnt/my-nfs-server/mp3")
-   (playcount_sticker . "unwoundstack.com:playcount")
-   (lastplayed_sticker . "unwoundstack.com:lastplayed")
-   (played_thresh . 0.6)
-   (poll_interval_ms . 5000)
-   (playcount_command . "/home/sp1ff/bin/scribbu")
-   (playcount_command_args . ("popm" "-a" "-A" "-b" "-o" "sp1ff@pobox.com" "-C" "%playcount" "%full-file"))
-   (commands_chan . "unwoundstack.com:commands")
-   (rating_sticker . "unwoundstack.com:rating")
-   (ratings_command . "/home/sp1ff/bin/scribbu")
-   (ratings_command_args . ("popm" "-a" "-A" "-b" "-o" "sp1ff@pobox.com" "-r" "%rating" "%full-file")))
-#+END_SRC
-
-Entries:
-
-  - log :: file to which the daemon will log when running in the background (if you specify the =-F= flag, to run it in the foreground, it will log to =stdout=); no log rotation is provided, so either setup =logrotate= or keep an eye on it so it doesn't grow too large. If not provided, will default to =$LOCALSTATEDIR/log/mppopmd.log=, where =$LOCALSTATEDIR= is =${prefix}/var= if you installed with Autotools, or just =/usr/local= otherwise.
-  - host :: IP address on which the MPD daemon is listening (should match =bind_to_address= in your =mpd= configuration file); defaults to "localhost"
-  - port :: port on which the =mpd= daemon is listening (should match =port= in your =mpd= configuration file); defaults to 6600
-  - local_music_dir :: the root of your MPD music directory, as seen from this host. Defaults to =${prefix}/Music= if you installed with Autotools, or just =/usr/local/Music= otherwise. This is only used when invoking commands (associated with playcounts, ratings &c, or just generalized commands) when they use the %full-file parameter. Therefore, if the music directory isn't available from the host on which you are running =mppopmd= this can be left defaulted, but those features will be unavailable.
-  - playcount_sticker :: the sticker name mpdpopm will use to store play counts (defaults to "unwoundstack.com:playcount")
-  - lastplayed_sticker :: the sticker name mpdpopm will use to store the last played timestamp (defaults to "unwoundstack.com:lastplayed")
-  - rating_sticker :: the sticker name mpdpopm will use to store the rating (defaults to "unwoundstack.com:rating")
-  - played_thresh :: the percentage of a song's duration that must be played back in order for it to be considered as "played", expressed as number between 0 & 1 (defaults to 0.6)
-  - poll_interval_ms :: the amount of time, in milliseconds, between polls of =mpd= by =mppopmd= to check on playback progress. Defaults to 5000 (i.e. five seconds).
-  - commands_chan :: name of the MPD channel on which =mppopmd= shall listen for commands ("unwoundstack.com:commands" by default)
-  - playcount_command :: optional name of a program to run when the play count is incremented; this should be an absolute path. use playcount_command_args to specify arguments to this command. Defaults to none.
-  - playcount_command_args :: an array of arguments to specify to the playcount command; arguments may contain replacement parameters that will be filled in at the time of execution (on which more below)-- defaults to none.
-  - ratings_command :: optional name of a program to run when the rating is set; this should be an absolute path. use rating to specify arguments to this command; defaults to none.
-  - ratings_command_args :: an array of arguments to specify to the ratings command; arguments may contain replacement parameters that will be filled in at the time of execution (on which more below); defaults to none.
-
-There is an additional configuration parameter not documented here: =gen_cmds=. That is described below.
-
-Finally, depending on how you installed =mpdpopm=, you may have a sample configuration file already. The Autotools distributions will install the sample to =$(docdir)/examples= (where =$(docdir)= is =${prefix}/share/doc/mpdpopm= by default). The Debian package installs it to =/usr/local/share/doc/mpdpopm/examples=. The pre-built binaries include it in the =doc= folder.
-**** Starting the Daemon
-
-Once you've got your configuration file prepared, you should probably start the daemon in the foreground for ease of trouble-shooting. I suggest starting it with the =-v= flag ("verbose") the first time, as well (there's also a =-d= flag which will produce more copious debug output). You should expect to see something like this:
-
-#+BEGIN_SRC bash
-mppopmd -v -F -c <path to configuration file>
-[2020-12-12T15:26:19.620806454-08:00][mppopmd] mppopmd 0.2.2 logging at level Debug.
-[2020-12-12T15:26:19.621395828-08:00][mpdpopm] mpdpopm 0.2.2 beginning.
-[2020-12-12T15:26:19.621998677-08:00][mpdpopm::clients] Connected 0.22.0.
-[2020-12-12T15:26:19.623398521-08:00][mpdpopm::clients] Connected 0.22.0.
-[2020-12-12T15:26:19.623874861-08:00][mpdpopm::clients] Sent subscribe message for unwoundstack.com:commands; got `OK
-'.
-[2020-12-12T15:26:19.623888424-08:00][mpdpopm::clients] Subscribed to unwoundstack.com:commands.
-[2020-12-12T15:26:19.624985027-08:00][mpdpopm] selecting...
-[2020-12-12T15:26:19.628412738-08:00][mpdpopm] output status is Ok(
-    Output {
-        status: ExitStatus(
-            ExitStatus(
-                0,
-            ),
-        ),
-        stdout: "/home/sp1ff\n",
-        stderr: "",
-    },
-)
-[2020-12-12T15:26:19.628778521-08:00][mpdpopm] No database update needed
-[2020-12-12T15:26:19.628817190-08:00][mpdpopm] No more commands to process.
-#+END_SRC
-
-At this point the daemon is just sitting around, waiting for something to happen. Bring up your favorite =mpd= client & start playing a track. That should induce some activity:
-
-#+BEGIN_SRC bash
-[2020-12-12T15:26:29.522581696-08:00][mpdpopm::clients] Sent idle message; got `changed: player
-OK
-'.
-[2020-12-12T15:26:29.522756287-08:00][mpdpopm] subsystem Player changed
-[2020-12-12T15:26:29.527064915-08:00][mpdpopm::playcounts] Updating status: 0.000% complete.
-...
-[2020-12-12T15:28:19.653519123-08:00][mpdpopm::playcounts] Updating status: 60.698% complete.
-[2020-12-12T15:28:19.653569350-08:00][mpdpopm::playcounts] Increment play count for 'M/Miles Davis - Boplicity.mp3' (songid: 262) at 0.6069790770994554 played.
-[2020-12-12T15:28:19.661696678-08:00][mpdpopm::clients] Sent message `sticker get song "M/Miles Davis - Boplicity.mp3" "unwoundstack.com:playcount"'; got `sticker: unwoundstack.com:playcount=3
-OK
-'
-[2020-12-12T15:28:19.661743547-08:00][mpdpopm::playcounts] Current PC is 3.
-[2020-12-12T15:28:19.770956673-08:00][mpdpopm::clients] Sent `sticker set song "M/Miles Davis - Boplicity.mp3" "unwoundstack.com:lastplayed" "1607815699"'; got `OK
-'
-[2020-12-12T15:28:19.868244915-08:00][mpdpopm::clients] Sent `sticker set song "M/Miles Davis - Boplicity.mp3" "unwoundstack.com:playcount" "4"'; got `OK
-'
-...
-#+END_SRC
-
-In this example, =mppopmd= noticed that "Boplicity" by Miles Davis started playing; when it was played 60% of the way through, the daemon updated the play count from 3 to 4 & set the last played timesetamp.
-
-Once things seem to be working, you might consider removing the =-F= flag & running =mppopmd= as a proper daemon.
+Once you've got the daemon running to your satisfaction, if you're on a systemd-based Linux distribution, have a look at the sample systemd unit file thanks to [[https://github.com/tanshoku][tanshoku]].
 
 [[https://github.com/tanshoku][tanshoku]] was kind enough to contribute a systemd unit for this purpose. At present, the build does not install it, but provides it as an example and leaves it to the user to install should they desire (and after they have edited it to suit their configuration). You can find it in =${prefix}/share/mpdpopm/examples= for the Autotools distribution, =/usr/local/share/mpdpopm/examples= for the Debian package, and in the =doc= folder for the pre-built binaries.
 *** mppopm
@@ -258,78 +189,21 @@ mppopm set-rating '*****'
 
 to set the current track's rating to five "stars" (say =mppopm --help= for an explanation of the rating system; in brief-- it's Winamp's). NB. the set rating command by default produces no output; if you want confirmation that somethings happening, use the =-v= flag.
 
-The CLI offers "get" & "set" commands for play counts, last played timestamps & the rating. Say =mppopm --help= for a full list of options, including how to tell it where the mpd server can be found on your network.
-
-** Advanced Usage
-
-*** Keeping Other Repositories of Information Up-to-Date
-
-One problem that arises is that you may have the information managed by [[https://github.com/sp1ff/mpdpopm][mpdpopm]] replicated in other locations. For instance, I have play counts _also_ recorded in the =PCNT= & =POPM= ID3 tags attached to my music files. I record ratings in the =POPM= tag, as well. For that reason, =mppopmd= has the ability to run arbitrary commands after updating stickers. I developed this for the purpose of keeping my ID3 tags up-to-date, but one could do anything (pop up a notification, update a database &c).
-
-I will again illustrate through a worked example: keeping ID3 tags up-to-date. I use [[https://github.com/sp1ff/scribbu][scribbu]], a little ID3 tagging utility I wrote to keep my tags up-to-date. The following two lines, placed in your configuration file:
-
-#+BEGIN_EXAMPLE
-   (playcount_command . "/home/sp1ff/bin/scribbu")
-   (playcount_command_args . ("popm" "-a" "-A" "-b" "-o" "sp1ff@pobox.com" "-C" "%playcount" "%full-file"))
-#+END_EXAMPLE
-
-will cause =mppopmd= to invoke the command =/home/sp1ff/bin/scribbu popm -a -A -b -o sp1ff@pobox.com -C %playcount %full-file= every time it updates the play count sticker. The tokens %playcount & %full-file will be replaced with the new play count and the absolute path to the file backing the current song, respectively.
-
-There are two such options: =playcount_command= & =ratings_command=. Both support the replacement paramter %full-file, which, at the time of execution, will expand the the absolute path to the file backing the current song. The playcount command also provides the replacment parameter %playcount, which will expand to the new play count (expressed in base ten). The ratings command provides the %rating parameter, which will expand to the new rating, expressed as an integer betweern 0 & 255, inclusive (again in base ten).
-
-*** Generalized Commands
-
-The idea of executing arbitrary commands proved useful enough to me that I generalized it: I set up a mechanism whereby the user can configure arbitrary server-side commands in response to messages received on the [[https://github.com/sp1ff/mpdpopm][mpdpopm]] commands channel. As an example, an entry in the configuration file like this:
-
-#+BEGIN_SRC elisp
-  (gen_cmds .
-            (((name . "set-genre")
-              (formal_parameters . (Literal Track))
-              (default_after . 1)
-              (cmd . "/home/sp1ff/bin/scribbu")
-              (args . ("genre" "-a" "-C" "-g" "%1" "%full-file"))
-              (update . TrackOnly)))
-#+END_SRC
-
-will define a new command "set-genre", with two parameters, the second of which can be omitted (it will default to the current track). When =mppopmd= receives this command (i.e. when a client says something like:
-
-#+BEGIN_EXAMPLE
-  sendmessage unwoundstack.com:commands "set-genre Rock"
-#+END_EXAMPLE
-
-=mppopmd= will invoke =/home/sp1ff/bin/scribbu= like this:
-
-#+BEGIN_EXAMPLE
-  /home/sp1ff/scribbu genre -a -C -g Rock "${music-dir}/${song URI}"
-#+END_EXAMPLE
-
-where the "psuedo-variables" =music-dir= and =song URI= above will be replaced with the configured music directory and the current song's URI.
-
-The configuration is perforce more complex because we have to, at configuration-time, define a mapping between the actual parameters supplied by a client in the message to "unwoundstack.com:commands" and the replacement parameters used in the command arguments. The command's replacement parameters are defined by a simple list, given in =formal_parameters=, of parameter types. At this time, there are only two formal parameter types:
-
-    1. Literal :: the actual parameter shall be copied verbatim into the replacement parameters, under the name "%i" where i is the one-based index of this formal parameter, expressed in base ten
-    2. Track :: the actual parameter will be interpreted as a song URI; it again may be referred in the replacement parameters as %i. Only one Track argument may appear in the list of formal parameters.
-
-Actual parameters after index =default_after= (counting from one) are optional; if not specified the replacement parameter will take the default value for its type ("" for literals, the currently playing song's URI for tracks).
-
-Two additional parameters are available:
-
-    1. current-file :: the absolute path to the currently playing track (if any)
-    2. full-file :: if the list of formal parameters contains a Track argument in slot i, the actual parameter will be interpreted as a song URI, =%i= will return the absolute path to that file (i.e. with =music_dir= prepended to the actual argument), as will =%full-file=
-
-Finally, some commands (such as "set-genre=, above) may change your music collection in such a way as to necessitate an =mpd= database update after they complete. The =update= configuration item governs that: it may be set to "NoUpdate", "TrackOnly", or "FullDatabase" to indicate that this command will require no update, an update to the song named by the Track parameter only, or the full database, respectively.
+The CLI offers "get" & "set" commands for play counts, last played timestamps & the rating. It also provides commands for searching your songs on the basis of play count, rating & last played times in addition to the usual artist, title &c. Say =mppopm --help= for a full list of options, including how to tell it where the mpd server can be found on your network.
 
 * Status & Roadmap
 
-I am currently using [[https://github.com/sp1ff/mpdpopm][mpdpopm]] day in & day out with my music collection, but it's early days; I have chosen the version number (0.1) in the hopes of indicating that. Right now, mpdpopm is the bare-bones of an app: it's plumbing, not the sink. You can use the mppopm CLI to, say, rate the current song, but in order to actually _do_ anything with that rating in the future, you're going to have to write some kind of mpd client for yourself. For example, I have a shell script that queries the sticker database for all songs with no rating & queues 'em up for listening. I have some Emacs LISP that queues up all songs with a rating > 128. But these are quick-and-dirty ways to leverage [[https://github.com/sp1ff/mpdpopm][mpdpopm]] while I figure out where it should go.
+I am currently using [[https://github.com/sp1ff/mpdpopm][mpdpopm]] day in & day out with my music collection, but it's early days; I have chosen the version number (0.n) in the hopes of indicating that. Right now, mpdpopm is the bare-bones of an app: it's plumbing, not the sink. 
 
-To that end, I plan to add a filter feature that would extend the MPD "find" capability to allow queries that include the stickers that [[https://github.com/sp1ff/mpdpopm][mpdpopm]] manages-- so you could, for instance, say:
+Heretofore, you could use the =mppopm= CLI to, say, rate the current song, but in order to actually _do_ anything with that rating in the future, you'd have had to  write some kind of mpd client for yourself. With the 0.2 release, I've added support for extended MPD filter syntax that allows queries that include the stickers that [[https://github.com/sp1ff/mpdpopm][mpdpopm]] manages-- so you can now, for instance, say:
 
 #+BEGIN_EXAMPLE
-find (artist =~ foo) and (rating > 175)
+mppopm findadd "(artist =~ \"foo\") and (rating > 175)"
 #+END_EXAMPLE
 
-MPD would handle the "artist =~" clause & [[https://github.com/sp1ff/mpdpopm][mpdpopm]] the "rating >" clause, as well as combining the results.
+MPD will handle the "artist =~" clause & [[https://github.com/sp1ff/mpdpopm][mpdpopm]] the "rating >" clause, as well as combining the results.
+
+This will hopefully be a start to making [[https://github.com/sp1ff/mpdpopm][mpdpopm]] into a more of a user-facing application than a developer-facing utlity.
 
 Windows support may be some time coming; the daemon depends on Unix signal handling, the MPD Unix socket, and the Unix daemon logic, especially =fork= & =exec=... if you'd like to run it on Windows, let me know-- if there's enough interest, and I can get some kind of Windows VM setup, I'll look at a port.
 

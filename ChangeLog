@@ -1,4 +1,11 @@
-2021-03-20  Michael Herstine  <sp1ff@pobox.com>
+2021-03-27  Michael Herstine  <sp1ff@pobox.com>
+
+	Documentation commit.
+	Broke-up the README; most of its content went into a new
+	user manual in Texinfo format. The process of documenting
+	filter quoting exposed multiple bugs-- fixed.
+
+2021-03-21  Michael Herstine  <sp1ff@pobox.com>
 
 	First true filter implementation.
 	This commit:

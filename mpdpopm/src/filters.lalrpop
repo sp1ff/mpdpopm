@@ -13,7 +13,10 @@
 // You should have received a copy of the GNU General Public License along with mpdpopm.  If not,
 // see <http://www.gnu.org/licenses/>.
 
-use crate::filters_ast::{Conjunction, Disjunction, Expression, OpCode, Selector, Term}; 
+use lalrpop_util::ParseError;
+
+use crate::filters_ast::{Conjunction, Disjunction, Expression, OpCode, Selector, Term, Value,
+                         expect_quoted, parse_iso_8601}; 
 
 grammar;
 
@@ -55,40 +58,55 @@ pub ExprSel: Selector = {
     r"(?i)musicbrainz_workid"         => Selector::MusicbrainzWorkID,
     r"(?i)file"                       => Selector::File,
     r"(?i)base"                       => Selector::Base,
-    r"(?i)modifiedsince"              => Selector::ModifiedSince,
+    r"(?i)modified-since"             => Selector::ModifiedSince,
     r"(?i)audioformat"                => Selector::AudioFormat,
     r"(?i)rating"                     => Selector::Rating,
     r"(?i)playcount"                  => Selector::PlayCount,
     r"(?i)lastplayed"                 => Selector::LastPlayed,
 };
 
-pub Token: &'input str = {
-    <s:r"[0-9]+"> => {
+pub Token: Value = {
+    <s:r"[0-9]+"> =>? {
         eprintln!("matched token: ``{}''.", s);
-        s
+        // We need to yield a Result<Value, ParseError>
+        match s.parse::<usize>() {
+            Ok(n) => Ok(Value::Uint(n)),
+            Err(_) => Err(ParseError::User {
+                error: "Internal parse error while parsing unsigned int" })
+        }
     },
-    <s:r#""([ \t'a-zA-Z0-9~!@#$%^&*()-=_+\[\]{}|;:<>,./?]|\\"|\\\))+""#> => {
+    // TODO(sp1ff): use =>?
+    <s:r#""([ \t'a-zA-Z0-9~!@#$%^&*()-=_+\[\]{}|;:<>,./?]|\\\\|\\"|\\')+""#> => {
         eprintln!("matched token: ``{}''.", s);
-        s
+        let s = expect_quoted(s).unwrap();
+        match parse_iso_8601(&mut s.as_bytes()) {
+            Ok(x) => Value::UnixEpoch(x),
+            Err(_) => Value::Text(s),
+        }
     },
-    <s:r#"'[ \t"a-zA-Z0-9~!@#$%^&*()-=_+\[\]{}|;:<>,./?]+'"#> => {
+    // TODO(sp1ff): use =>?
+    <s:r#"'([ \t"a-zA-Z0-9~!@#$%^&*()-=_+\[\]{}|;:<>,./?]|\\\\|\\'|\\")+'"#> => {
         eprintln!("matched token: ``{}''.", s);
-        s
+        let s = expect_quoted(s).unwrap();
+        match parse_iso_8601(&mut s.as_bytes()) {
+            Ok(x) => Value::UnixEpoch(x),
+            Err(_) => Value::Text(s),
+        }
     },
 };
 
-pub Term: Box<Term<'input>> = {
+pub Term: Box<Term> = {
     <t:ExprSel> <u:Token> => {
-        eprintln!("matched unary condition: ``({}, {})''", t, u);
+        eprintln!("matched unary condition: ``({}, {:#?})''", t, u);
         Box::new(Term::UnaryCondition(t, u))
     },
     <t:ExprSel> <o:ExprOp> <u:Token> => {
-        eprintln!("matched binary condition: ``({}, {:#?}, {})''", t, o, u);
+        eprintln!("matched binary condition: ``({}, {:#?}, {:#?})''", t, o, u);
         Box::new(Term::BinaryCondition(t, o, u))
     },
 }
 
-pub Conjunction: Box<Conjunction<'input>> = {
+pub Conjunction: Box<Conjunction> = {
     <e1:Expression> "AND" <e2:Expression> => {
         eprintln!("matched conjunction: ``({:#?}, {:#?})''", e1, e2);
         Box::new(Conjunction::Simple(e1, e2))
@@ -99,7 +117,7 @@ pub Conjunction: Box<Conjunction<'input>> = {
     },
 }
 
-pub Disjunction: Box<Disjunction<'input>> = {
+pub Disjunction: Box<Disjunction> = {
     <e1:Expression> "OR" <e2:Expression> => {
         eprintln!("matched disjunction: ``({:#?}, {:#?})''", e1, e2);
         Box::new(Disjunction::Simple(e1, e2))
@@ -110,7 +128,7 @@ pub Disjunction: Box<Disjunction<'input>> = {
     },
 }
 
-pub Expression: Box<Expression<'input>> = {
+pub Expression: Box<Expression> = {
     "(" <t:Term> ")" => {
         eprintln!("matched parenthesized term: ``({:#?})''", t);
         Box::new(Expression::Simple(t))
