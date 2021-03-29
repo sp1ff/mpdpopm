@@ -54,7 +54,7 @@ jobs:
           pwd
           set -x
           sudo apt-get update
-          sudo apt-get install -y autoconf automake emacs
+          sudo apt-get install -y autoconf automake emacs liblzma-dev texlive
 
     - name: Install Tools (macOS)
       if: matrix.os == 'macos-10.15'
@@ -63,7 +63,9 @@ jobs:
           pwd
           set -x
           brew update
+          brew upgrade
           brew install autoconf automake emacs
+          brew install --cask basictex
 
     - name: Install Rust
       uses: actions-rs/toolchain@v1
@@ -110,9 +112,17 @@ jobs:
         pwd
         cargo test --verbose
 
-    - name: Check the Autotools distribution
+    - name: Check the Autotools distribution (Ubuntu)
+      if: matrix.os == 'ubuntu-18.04'
       shell: bash
       run: make distcheck
+
+    - name: Check the Autotools distribution (MacOS)
+      if: matrix.os == 'macos-10.15'
+      shell: bash
+      run: |
+        eval "$(/usr/libexec/path_helper)"
+        make distcheck
 
     - name: Check the Debian package
       if: matrix.os == 'ubuntu-18.04'
