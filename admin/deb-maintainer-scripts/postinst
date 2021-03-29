@@ -1,0 +1,11 @@
+#!/bin/bash
+set -e
+if [ "configure" != "$1" ]; then
+   echo "mpdpopm postinst invoked with ``$1'' as command-- bailing!"
+   exit 0
+fi
+if ! test -x /usr/bin/install-info; then
+   echo "mpdpopm postinst can't find install-info-- bailing!"
+   exit 0
+fi
+/usr/bin/install-info --info-dir=/usr/local/share/info /usr/local/share/info/mpdpopm.info

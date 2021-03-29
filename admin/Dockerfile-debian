@@ -8,7 +8,7 @@ RUN set -ex && \
 	apt-get update && \
 	apt-get install -y --no-install-recommends \
 	# mpdpopm pre-requisistes \
-	rustc cargo locales \
+	rustc cargo locales texinfo \
         # for my sanity \
 	less procps gdb sudo info vim && \
         # tidy-up \

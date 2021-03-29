@@ -1,0 +1,7 @@
+#!/bin/bash
+set -e
+if ! test -x /usr/bin/install-info; then
+   echo "mpdpopm prerm can't find install-info-- bailing!"
+   exit 0
+fi
+/usr/bin/install-info --delete --info-dir=/usr/local/share/info /usr/local/share/info/mpdpopm.info

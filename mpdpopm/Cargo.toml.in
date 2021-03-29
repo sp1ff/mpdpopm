@@ -54,11 +54,13 @@ priority = "optional"
 # that it only needs 2.28-10 (and possibly much older). I'm going to
 # roll the dice & just specify no version.
 depends = "libc6"
+maintainer-scripts = "../admin/deb-maintainer-scripts"
 assets = [
        ["target/release/mppopm", "usr/local/bin/", "755"],
        ["target/release/mppopmd", "usr/local/bin/", "755"],
        ["README.md", "usr/local/share/doc/mpdpopm/README", "644"],
-       ["mppopmd.conf", "/usr/local/share/doc/mpdpopm/examples/mppopmd.conf", "644"],
-       ["mppopmd.service", "/usr/local/lib/systemd/user/mppopmd.service", "644"],
-       ["mppopmd.service", "/usr/local/lib/systemd/system/mppopmd.service", "644"],
+       ["mppopmd.conf", "usr/local/share/doc/mpdpopm/examples/mppopmd.conf", "644"],
+       ["mppopmd.service", "usr/local/lib/systemd/user/mppopmd.service", "644"],
+       ["mppopmd.service", "usr/local/lib/systemd/system/mppopmd.service", "644"],
+       ["../doc/mpdpopm.info", "usr/local/share/info/", "644"],
 ]
