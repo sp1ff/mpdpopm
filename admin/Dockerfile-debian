@@ -7,13 +7,15 @@ ENV DEBIAN_FRONTEND=${DEBIAN_FRONTEND:-noninteractive}
 RUN set -ex && \
 	apt-get update && \
 	apt-get install -y --no-install-recommends \
+        # Wow... \
+        ca-certificates \
 	# mpdpopm pre-requisistes \
 	rustc cargo locales texinfo \
         # for my sanity \
 	less procps gdb sudo info vim && \
         # tidy-up \
 	apt-get clean && \
-	rm -rf /tmp/* /var/tmp/* && \
+        rm -rf /tmp/* /var/tmp/* && \
         # set the timezone to civilization (i.e. the Pacific) \
 	ln -fs /usr/share/zoneinfo/US/Pacific /etc/localtime && dpkg-reconfigure -f noninteractive tzdata && \
 	# Setup the en_US.UTF-8 locale \
@@ -23,10 +25,18 @@ RUN set -ex && \
 	locale-gen en_US.UTF-8 && \
 	update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 && \
 	# re-include the doc directories \
-	mkdir /usr/share/man/man1 && \
+	(test -d /usr/share/man/man1 || mkdir /usr/share/man/man1) && \
 	echo "path-include /usr/share/doc/scribbu" >> /etc/dpkg/dpkg.cfg.d/docker && \
 	echo "path-include /usr/share/man/man1/scribbu*" >> /etc/dpkg/dpkg.cfg.d/docker && \
-	echo "path-include /usr/share/info/scribbu.info" >> /etc/dpkg/dpkg.cfg.d/docker
+        echo "path-include /usr/share/info/scribbu.info" >> /etc/dpkg/dpkg.cfg.d/docker && \
+	useradd -ms /bin/bash -G users,sudo mgh && \
+	echo 'mgh:mgh' | chpasswd
 
 # The test suite won't work if this isn't set:
 ENV LANG="en_US.UTF-8"
+
+USER mgh
+
+RUN cargo install cargo-deb
+
+ENV PATH="/home/mgh/.cargo/bin:${PATH}"

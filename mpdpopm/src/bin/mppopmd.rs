@@ -25,10 +25,11 @@
 //! the sticker database, by invoking external commands to keep your tags up-to-date (something
 //! along the lines of [mpdcron](https://alip.github.io/mpdcron)).
 
+use mpdpopm::config;
+use mpdpopm::config::Config;
 use mpdpopm::error_from;
 use mpdpopm::mpdpopm;
 use mpdpopm::vars::LOCALSTATEDIR;
-use mpdpopm::Config;
 
 use clap::{App, Arg};
 use errno::errno;
@@ -126,6 +127,7 @@ impl fmt::Debug for Error {
 
 error_from!(log::SetLoggerError);
 error_from!(mpdpopm::Error);
+error_from!(mpdpopm::config::Error);
 error_from!(serde_lexpr::error::Error);
 error_from!(std::ffi::NulError);
 error_from!(std::io::Error);
@@ -140,11 +142,11 @@ type Result = std::result::Result<(), Error>;
 ///
 /// After spending a bit of time digging around the world of TTYs, process groups & sessions, I'm
 /// beginning to understand what "daemon" means and how to create one. The first step is to
-/// dissaasociate this process from it's controlling terminal & make sure it cannot acquire a new
+/// dissassociate this process from it's controlling terminal & make sure it cannot acquire a new
 /// one. This, AFAIK, is to disconnect us from any job control associated with that terminal, and in
 /// particular to prevent us from being disturbed when & if that terminal is closed (I'm still hazy
 /// on the details, but at least the session leader (and perhaps it's descendants) will be sent a
-/// SIGHUP in that eventuality.
+/// SIGHUP in that eventuality).
 ///
 /// After that, the rest of the work seems to consist of shedding all the things we (may have)
 /// inherited from our creator. Things such as:
@@ -286,7 +288,7 @@ fn main() -> Result {
             "
 `mppopmd' is a companion daemon for `mpd' that maintains playcounts & ratings,
 as well as implementing some handy functions. It maintains ratings & playcounts in the sticker
-databae, but it allows you to keep that information in your tags, as well, by invoking external
+database, but it allows you to keep that information in your tags, as well, by invoking external
 commands to keep your tags up-to-date.",
         )
         .arg(
@@ -322,7 +324,7 @@ commands to keep your tags up-to-date.",
     let cfg = match std::fs::read_to_string(cfgpth) {
         // The config file (defaulted or not) existed & we were able to read its contents-- parse
         // em!
-        Ok(text) => serde_lexpr::from_str(&text)?,
+        Ok(text) => config::from_str(&text)?,
         // The config file (defaulted or not) either didn't exist, or we were unable to read its
         // contents...
         Err(err) => match (err.kind(), matches.occurrences_of("config")) {

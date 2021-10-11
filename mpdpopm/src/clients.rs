@@ -13,9 +13,9 @@
 // You should have received a copy of the GNU General Public License along with mpdpopm.  If not,
 // see <http://www.gnu.org/licenses/>.
 
-//! mpd clients and associated utilities.
+//! # mpd clients and associated utilities.
 //!
-//! # Introduction
+//! ## Introduction
 //!
 //! This module contains basic types implementing various `mpd' client operations. Cf. the [mpd
 //! protocol](http://www.musicpd.org/doc/protocol/). Since issuing the "idle" command will tie up
@@ -1279,7 +1279,7 @@ impl IdleClient {
             Init,
             Running,
             Finished,
-        };
+        }
         let mut state = State::Init;
         let mut chan = String::new();
         let mut msgs: Vec<String> = Vec::new();

@@ -37,6 +37,3 @@ USER mgh
 
 ENV PATH="/home/mgh/.cargo/bin:${PATH}"
 
-# RUN cargo install cargo-aur && \
-# 	cargo install cargo-arch
-

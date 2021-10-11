@@ -2,9 +2,11 @@
 ;; You will need to edit this to suit your particular installation.
 ;; In particular, examine the `log' & `local_music_dir' values since those
 ;; are difficult to guess. Also check the `host' & `port' settings.
-((log . "@datadir@/log/mppopmd.log")
- (host . "localhost")
- (port . 6600)
+((version . "1")
+ (log . "@datadir@/log/mppopmd.log")
+ (conn TCP (host . "localhost") (port . 6600))
+ ;; Replace the above line with this to use the local socket
+ ;; (conn Local (path . "@datadir@/run/mpd/socket"))
  (local_music_dir . "@prefix@/Music")
  (playcount_sticker . "unwoundstack.com:playcount")
  (lastplayed_sticker . "unwoundstack.com:lastplayed")

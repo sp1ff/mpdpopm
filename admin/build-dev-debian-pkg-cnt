@@ -1,0 +1,15 @@
+#!/bin/bash
+
+set -ex
+base="$(basename $1 .tar.gz)"
+version="${base:8}"
+cp -v /"$1" /tmp
+cd /tmp
+tar -xf "$1"
+cd mpdpopm-${version}
+cp -v /LICENSE .
+./configure
+cd mpdpopm
+cargo deb
+sudo cp -v target/debian/mpdpopm_${version}_amd64.deb /mpdpopm
+

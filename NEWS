@@ -1,5 +1,10 @@
 mpdpopm News -- history of user-visible changes           -*- outline -*-
 
+* 0.3.0 build
+
+** Bugfixes
+
+*** Address Issue #5: Cannot connect to mpd unix socket
 * 0.2.3 build
 
 ** User-visible changes

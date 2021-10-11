@@ -2,7 +2,7 @@
 #+AUTHOR: Michael Herstine
 #+DESCRIPTION: mpdpopm
 #+EMAIL: sp1ff@pobox.com
-#+DATE: <2021-03-28 Sun 17:44>
+#+DATE: <2021-10-11 Mon 12:10>
 #+AUTODATE: t
 
 * Introduction
@@ -56,10 +56,10 @@ Thanks  to a suggestion by [[https://github.com/m040601][m040601]], you can down
 
 #+BEGIN_SRC bash
 cd /tmp
-curl -L --output mpdpopm-0.2.3.tar.gz https://github.com/sp1ff/mpdpopm/releases/download/0.2.3/mpdpopm-0.2.3-x86_64-unknown-linux.tar.gz
-tar xf mpdpopm-0.2.3.tar.gz
-tree mpdpopm-0.2.3-x86_64-unknown-linux/
-mpdpopm-0.2.3-x86_64-unknown-linux/
+curl -L --output mpdpopm-0.3.0.tar.gz https://github.com/sp1ff/mpdpopm/releases/download/0.3.0/mpdpopm-0.3.0-x86_64-unknown-linux.tar.gz
+tar xf mpdpopm-0.3.0.tar.gz
+tree mpdpopm-0.3.0-x86_64-unknown-linux/
+mpdpopm-0.3.0-x86_64-unknown-linux/
 ├── bin
 │   ├── mppopm
 │   └── mppopmd
@@ -89,8 +89,8 @@ If you're running on a Debian-based Linux distribution, and you're on an x86_64 
 
 #+BEGIN_SRC bash
 cd /tmp
-curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.2.3/mpdpopm_0.2.3_amd64.deb
-sudo dpkg -i mpdpopm_0.2.3_amd64.deb
+curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.3.0/mpdpopm_0.3.0_amd64.deb
+sudo dpkg -i mpdpopm_0.3.0_amd64.deb
 #+END_SRC
 
 The binaries will be placed in =/usr/local/bin=, and you can proceed to [[#getting_started][Getting Started]], below.
@@ -101,8 +101,8 @@ If you're running on an Arch-based Linux distribution, and you're on an x86_64 p
 
 #+BEGIN_SRC bash
 cd /tmp
-curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.2.3/mpdpopm_0.2.3-1-x86_64.pkg.tar.zst
-sudo pacman -U mpdpopm_0.2.3-1-x86_64.pkg.tar.zst
+curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.3.0/mpdpopm_0.3.0-1-x86_64.pkg.tar.zst
+sudo pacman -U mpdpopm_0.3.0-1-x86_64.pkg.tar.zst
 #+END_SRC
 
 The binaries will be placed in =/usr/local/bin=, and you can proceed to [[#getting_started][Getting Started]], below.
@@ -113,9 +113,9 @@ If you've got the Rust toolchain as well as Autotools installed, you can build f
 
 #+BEGIN_SRC bash
 cd /tmp
-curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.2.3/mpdpopm-0.2.3.tar.xz
-tar xf mpdpopm-0.2.3.tar.xz
-cd mpdpopm-0.2.3
+curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.3.0/mpdpopm-0.3.0.tar.xz
+tar xf mpdpopm-0.3.0.tar.xz
+cd mpdpopm-0.3.0
 ./configure
 make
 make check

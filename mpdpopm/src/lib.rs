@@ -34,6 +34,7 @@
 
 pub mod clients;
 pub mod commands;
+pub mod config;
 pub mod error_from;
 pub mod filters_ast;
 pub mod messages;
@@ -46,11 +47,12 @@ extern crate lalrpop_util;
 lalrpop_mod!(pub filters); // synthesized by LALRPOP
 
 use clients::{Client, IdleClient, IdleSubSystem};
-use commands::{FormalParameter, GeneralizedCommand, TaggedCommandFuture, Update};
+use commands::{GeneralizedCommand, TaggedCommandFuture};
+use config::Config;
+use config::Connection;
 use filters_ast::FilterStickerNames;
 use messages::MessageProcessor;
 use playcounts::PlayState;
-use vars::{LOCALSTATEDIR, PREFIX};
 
 use futures::{
     future::FutureExt,
@@ -59,7 +61,6 @@ use futures::{
 };
 use libc::getpid;
 use log::{debug, error, info};
-use serde::{Deserialize, Serialize};
 use snafu::{Backtrace, GenerateBacktrace, OptionExt, Snafu};
 use tokio::{
     signal,
@@ -95,82 +96,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct GeneralizedCommandDefn {
-    /// Command name
-    name: String,
-    /// An ordered collection of formal parameter types
-    formal_parameters: Vec<FormalParameter>,
-    /// Actual parameters may be defaulted after this many places
-    default_after: usize,
-    /// The command to be run; if not absolute, the `PATH` will be searched in an system-
-    /// dependent way
-    cmd: PathBuf,
-    /// Command arguments; may include replacement parameters (like "%full-file")
-    args: Vec<String>,
-    /// The sort of MPD music database update that needs to take place when this command finishes
-    update: Update,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(default)]
-pub struct Config {
-    /// Location of log file
-    pub log: PathBuf,
-    /// Host on which `mpd' is listening
-    host: String,
-    /// TCP port on which `mpd' is listening
-    port: u16,
-    /// The `mpd' root music directory, relative to the host on which *this* daemon is running
-    local_music_dir: PathBuf,
-    /// Sticker name under which to store playcounts
-    playcount_sticker: String,
-    /// Sticker name under which to store the last played timestamp
-    lastplayed_sticker: String,
-    /// Percentage threshold, expressed as a number between zero & one, for considering a song to
-    /// have been played
-    played_thresh: f64,
-    /// The interval, in milliseconds, at which to poll `mpd' for the current state
-    poll_interval_ms: u64,
-    /// Channel to setup for assorted commands-- channel names must satisfy "[-a-zA-Z-9_.:]+"
-    commands_chan: String,
-    /// Command, with replacement parameters, to be run when a song's playcount is incremented
-    playcount_command: String,
-    /// Args, with replacement parameters, for the playcount command
-    playcount_command_args: Vec<String>,
-    /// Sticker under which to store song ratings, as a textual representation of a number in
-    /// [0,255]
-    rating_sticker: String,
-    /// Command, with replacement parameters, to be run when a song is rated
-    ratings_command: String,
-    /// Args, with replacement parameters, for the ratings command
-    ratings_command_args: Vec<String>,
-    /// Generalized commands
-    gen_cmds: Vec<GeneralizedCommandDefn>,
-}
-
-impl Default for Config {
-    fn default() -> Config {
-        Config {
-            log: [LOCALSTATEDIR, "log", "mppopmd.log"].iter().collect(),
-            host: String::from("localhost"),
-            port: 6600,
-            local_music_dir: [PREFIX, "Music"].iter().collect(),
-            playcount_sticker: String::from("unwoundstack.com:playcount"),
-            lastplayed_sticker: String::from("unwoundstack.com:lastplayed"),
-            played_thresh: 0.6,
-            poll_interval_ms: 5000,
-            commands_chan: String::from("unwoundstack.com:commands"),
-            playcount_command: String::new(),
-            playcount_command_args: Vec::<String>::new(),
-            rating_sticker: String::from("unwoundstack.com:rating"),
-            ratings_command: String::new(),
-            ratings_command_args: Vec::<String>::new(),
-            gen_cmds: Vec::<GeneralizedCommandDefn>::new(),
-        }
-    }
-}
-
 /// Core `mppopmd' logic
 pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
     let pid = unsafe { getpid() };
@@ -187,7 +112,10 @@ pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
         &cfg.lastplayed_sticker,
     );
 
-    let mut client = Client::connect(format!("{}:{}", cfg.host, cfg.port)).await?;
+    let mut client = match cfg.conn {
+        Connection::Local { ref path } => Client::open(path).await?,
+        Connection::TCP { ref host, port } => Client::connect(format!("{}:{}", host, port)).await?,
+    };
 
     let mut state = PlayState::new(
         &mut client,
@@ -197,7 +125,13 @@ pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
     )
     .await?;
 
-    let mut idle_client = IdleClient::connect(format!("{}:{}", cfg.host, cfg.port)).await?;
+    let mut idle_client = match cfg.conn {
+        Connection::Local { ref path } => IdleClient::open(path).await?,
+        Connection::TCP { ref host, port } => {
+            IdleClient::connect(format!("{}:{}", host, port)).await?
+        }
+    };
+
     idle_client.subscribe(&cfg.commands_chan).await?;
 
     let mut hup = signal(SignalKind::hangup()).unwrap();
