@@ -35,7 +35,6 @@
 pub mod clients;
 pub mod commands;
 pub mod config;
-pub mod error_from;
 pub mod filters_ast;
 pub mod messages;
 pub mod playcounts;
@@ -54,6 +53,7 @@ use filters_ast::FilterStickerNames;
 use messages::MessageProcessor;
 use playcounts::PlayState;
 
+use backtrace::Backtrace;
 use futures::{
     future::FutureExt,
     pin_mut, select,
@@ -61,7 +61,6 @@ use futures::{
 };
 use libc::getpid;
 use log::{debug, error, info};
-use snafu::{Backtrace, GenerateBacktrace, OptionExt, Snafu};
 use tokio::{
     signal,
     signal::unix::{signal, SignalKind},
@@ -72,25 +71,44 @@ use std::path::PathBuf;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Snafu)]
+#[derive(Debug)]
+#[non_exhaustive]
 pub enum Error {
-    #[snafu(display("The path `{}' cannot be converted to a UTF-8 string", pth.display()))]
-    BadPath { pth: PathBuf },
-    #[snafu(display("{}", cause))]
-    Other {
-        #[snafu(source(true))]
-        cause: Box<dyn std::error::Error>,
-        #[snafu(backtrace(true))]
+    BadPath {
+        pth: PathBuf,
+    },
+    Client {
+        source: crate::clients::Error,
+        back: Backtrace,
+    },
+    Playcounts {
+        source: crate::playcounts::Error,
         back: Backtrace,
     },
 }
 
-error_from!(commands::Error);
-error_from!(clients::Error);
-error_from!(playcounts::Error);
-error_from!(ratings::Error);
-error_from!(std::num::ParseIntError);
-error_from!(std::time::SystemTimeError);
+impl std::fmt::Display for Error {
+    #[allow(unreachable_patterns)] // the _ arm is *currently* unreachable
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Error::BadPath { pth } => write!(f, "Bad path: {:?}", pth),
+            Error::Client { source, back: _ } => write!(f, "Client error: {}", source),
+            Error::Playcounts { source, back: _ } => write!(f, "Playcount error: {}", source),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match &self {
+            Error::Client {
+                ref source,
+                back: _,
+            } => Some(source),
+            _ => None,
+        }
+    }
+}
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -102,7 +120,7 @@ pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
     info!("mpdpopm {} beginning (PID {}).", vars::VERSION, pid);
 
     // We need the music directory to be convertible to string; check that first-off:
-    let music_dir = cfg.local_music_dir.to_str().context(BadPath {
+    let music_dir = cfg.local_music_dir.to_str().ok_or_else(|| Error::BadPath {
         pth: cfg.local_music_dir.clone(),
     })?;
 
@@ -113,8 +131,18 @@ pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
     );
 
     let mut client = match cfg.conn {
-        Connection::Local { ref path } => Client::open(path).await?,
-        Connection::TCP { ref host, port } => Client::connect(format!("{}:{}", host, port)).await?,
+        Connection::Local { ref path } => {
+            Client::open(path).await.map_err(|err| Error::Client {
+                source: err,
+                back: Backtrace::new(),
+            })?
+        }
+        Connection::TCP { ref host, port } => Client::connect(format!("{}:{}", host, port))
+            .await
+            .map_err(|err| Error::Client {
+            source: err,
+            back: Backtrace::new(),
+        })?,
     };
 
     let mut state = PlayState::new(
@@ -123,16 +151,34 @@ pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
         &cfg.lastplayed_sticker,
         cfg.played_thresh,
     )
-    .await?;
+    .await
+    .map_err(|err| Error::Client {
+        source: err,
+        back: Backtrace::new(),
+    })?;
 
     let mut idle_client = match cfg.conn {
-        Connection::Local { ref path } => IdleClient::open(path).await?,
-        Connection::TCP { ref host, port } => {
-            IdleClient::connect(format!("{}:{}", host, port)).await?
+        Connection::Local { ref path } => {
+            IdleClient::open(path).await.map_err(|err| Error::Client {
+                source: err,
+                back: Backtrace::new(),
+            })?
         }
+        Connection::TCP { ref host, port } => IdleClient::connect(format!("{}:{}", host, port))
+            .await
+            .map_err(|err| Error::Client {
+                source: err,
+                back: Backtrace::new(),
+            })?,
     };
 
-    idle_client.subscribe(&cfg.commands_chan).await?;
+    idle_client
+        .subscribe(&cfg.commands_chan)
+        .await
+        .map_err(|err| Error::Client {
+            source: err,
+            back: Backtrace::new(),
+        })?;
 
     let mut hup = signal(SignalKind::hangup()).unwrap();
     let mut kill = signal(SignalKind::terminate()).unwrap();
@@ -183,71 +229,74 @@ pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
             let mut idle = Box::pin(idle_client.idle().fuse());
             loop {
                 select! {
-                    _ = ctrl_c => {
-                        info!("got ctrl-C");
-                        done = true;
-                        break;
-                    },
-                    _ = sighup => {
-                        info!("got SIGHUP");
-                        done = true;
-                        break;
-                    },
-                    _ = sigkill => {
-                        info!("got SIGKILL");
-                        done = true;
-                        break;
-                    },
-                    _ = tick => {
-                        tick.set(delay_for(Duration::from_millis(cfg.poll_interval_ms)).fuse());
-                        if let Some(fut) = state.update(&mut client,
-                                                        &cfg.playcount_command,
-                                                        &mut cfg.playcount_command_args
-                                                        .iter()
-                                                        .cloned(),
-                                                        music_dir).await? {
-                            cmds.push(fut);
-                        }
-                    },
-                    next = cmds.next() => match next {
-                        Some(out) => {
-                            debug!("output status is {:#?}", out.out);
-                            match out.upd {
-                                Some(uri) => {
-                                    debug!("{} needs to be updated", uri);
-                                    client.update(&uri).await?;
-                                },
-                                None => debug!("No database update needed"),
-                            }
-                        },
-                        None => {
-                            debug!("No more commands to process.");
-                        }
-                    },
-                    res = idle => match res {
-                        Ok(subsys) => {
-                            debug!("subsystem {} changed", subsys);
-                            if subsys == IdleSubSystem::Player {
+                            _ = ctrl_c => {
+                                info!("got ctrl-C");
+                                done = true;
+                                break;
+                            },
+                            _ = sighup => {
+                                info!("got SIGHUP");
+                                done = true;
+                                break;
+                            },
+                            _ = sigkill => {
+                                info!("got SIGKILL");
+                                done = true;
+                                break;
+                            },
+                            _ = tick => {
+                                tick.set(delay_for(Duration::from_millis(cfg.poll_interval_ms)).fuse());
                                 if let Some(fut) = state.update(&mut client,
                                                                 &cfg.playcount_command,
                                                                 &mut cfg.playcount_command_args
                                                                 .iter()
                                                                 .cloned(),
-                                                                music_dir).await? {
+                                                                music_dir).await.map_err(|err| Error::Playcounts{source: err, back: Backtrace::new()})? {
                                     cmds.push(fut);
                                 }
-                            } else if subsys == IdleSubSystem::Message {
-                                msg_check_needed = true;
+                            },
+                            next = cmds.next() => match next {
+                                Some(out) => {
+                                    debug!("output status is {:#?}", out.out);
+                                    match out.upd {
+                                        Some(uri) => {
+                                            debug!("{} needs to be updated", uri);
+                                            client.update(&uri).await.map_err(|err| Error::Client {
+                    source: err,
+                    back: Backtrace::new(),
+                })?;
+                                        },
+                                        None => debug!("No database update needed"),
+                                    }
+                                },
+                                None => {
+                                    debug!("No more commands to process.");
+                                }
+                            },
+                            res = idle => match res {
+                                Ok(subsys) => {
+                                    debug!("subsystem {} changed", subsys);
+                                    if subsys == IdleSubSystem::Player {
+                                        if let Some(fut) = state.update(&mut client,
+                                                                        &cfg.playcount_command,
+                                                                        &mut cfg.playcount_command_args
+                                                                        .iter()
+                                                                        .cloned(),
+                                                                        music_dir).await.map_err(|err| Error::Playcounts{source: err, back: Backtrace::new()})? {
+                                            cmds.push(fut);
+                                        }
+                                    } else if subsys == IdleSubSystem::Message {
+                                        msg_check_needed = true;
+                                    }
+                                    break;
+                                },
+                                Err(err) => {
+                                    debug!("error {} on idle", err);
+                                    done = true;
+                                    break;
+                                }
                             }
-                            break;
-                        },
-                        Err(err) => {
-                            debug!("error {} on idle", err);
-                            done = true;
-                            break;
                         }
-                    }
-                }
             }
         } // `idle_client' mutable borrow dropped here, which is important...
 

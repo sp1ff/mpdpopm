@@ -28,11 +28,11 @@
 
 use mpdpopm::{
     clients::{quote, Client, PlayerStatus},
-    error_from,
     playcounts::{get_last_played, get_play_count},
     ratings::get_rating,
 };
 
+use backtrace::Backtrace;
 use clap::{App, Arg};
 use log::{debug, info, trace, LevelFilter};
 use log4rs::{
@@ -41,7 +41,6 @@ use log4rs::{
     encode::pattern::PatternEncoder,
 };
 use serde::{Deserialize, Serialize};
-use snafu::{Backtrace, GenerateBacktrace, OptionExt, Snafu};
 
 use std::{fmt, path::PathBuf};
 
@@ -49,93 +48,78 @@ use std::{fmt, path::PathBuf};
 //                                 mppopm application Error Type                                  //
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// NB we take care NOT to derive Debug here. This is because main returns a Result<(), Error>; in
-// the case of an error, the stdlib will format the resulting error message using the Debug trait
-// which, when derived, is rather ugly. We'll implement it by hand below to produce something more
-// pleasant for human beings to read.
-/// `mppopm` errors
-#[derive(Snafu)]
+#[non_exhaustive]
 pub enum Error {
-    #[snafu(display("{}", cause))]
-    Other {
-        #[snafu(source(true))]
-        cause: Box<dyn std::error::Error>,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    #[snafu(display("No sub-command specified; try `mppopm --help'"))]
     NoSubCommand,
-    #[snafu(display(
-        "The `config' argument couldn't be retrieved. This is likely a bug; please \
-consider filing a report with sp1ff@pobox.com"
-    ))]
     NoConfigArg,
-    #[snafu(display(
-        "The `rating' argument couldn't be retrieved. This is likely a bug; please \
-consider filing a report with sp1ff@pobox.com"
-    ))]
     NoRating,
-    #[snafu(display(
-        "The `playcount' argument couldn't be retrieved. This is likely a bug; please \
-consider filing a report with sp1ff@pobox.com"
-    ))]
     NoPlayCount,
-    #[snafu(display(
-        "The `last-played' argument couldn't be retrieved. This is likely a bug; please \
-consider filing a report with sp1ff@pobox.com"
-    ))]
     NoLastPlayed,
-    #[snafu(display(
-        "While trying to read the configuration file `{:?}', got `{}'",
-        config,
-        cause
-    ))]
     NoConfig {
         config: std::path::PathBuf,
-        #[snafu(source(true))]
         cause: std::io::Error,
     },
-    #[snafu(display("Can't retrieve the current song when the player is stopped"))]
     PlayerStopped,
-    #[snafu(display("Received a path with non-UTF8 codepoints: {:?}", path))]
     BadPath {
         path: PathBuf,
-        #[snafu(backtrace(true))]
         back: Backtrace,
     },
-    #[cfg(feature = "scribbu")]
-    #[snafu(display(
-        "The `xtag' argument couldn't be retrieved. This is likely a bug; please \
-consider filing a report with sp1ff@pobox.com"
-    ))]
-    NoXtag,
-    #[cfg(feature = "scribbu")]
-    #[snafu(display(
-        "The `genre' argument couldn't be retrieved. This is likely a bug; please \
-consider filing a report with sp1ff@pobox.com"
-    ))]
-    NoGenre,
-    #[snafu(display(
-        "The `playlist' argument couldn't be retrieved. This is likely a bug; \
-please consider filing a report with sp1ff@pobox.com"
-    ))]
     NoPlaylist,
+    Client {
+        source: mpdpopm::clients::Error,
+        back: Backtrace,
+    },
+    Ratings {
+        source: mpdpopm::ratings::Error,
+        back: Backtrace,
+    },
+    Playcounts {
+        source: mpdpopm::playcounts::Error,
+        back: Backtrace,
+    },
+    ExpectedInt {
+        source: std::num::ParseIntError,
+        back: Backtrace,
+    },
+    Logging {
+        source: log::SetLoggerError,
+        back: Backtrace,
+    },
+    Config {
+        source: serde_lexpr::Error,
+        back: Backtrace,
+    },
 }
 
+impl std::fmt::Display for Error {
+    #[allow(unreachable_patterns)] // the _ arm is *currently* unreachable
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Error::NoSubCommand => write!(f, "No sub-command given"),
+            Error::NoConfigArg => write!(f, "No argument given for the configuration option"),
+            Error::NoRating => write!(f, "No rating supplied"),
+            Error::NoPlayCount => write!(f, "No play count supplied"),
+            Error::NoLastPlayed => write!(f, "No last played timestamp given"),
+            Error::NoConfig { config, cause } => write!(f, "Bad config ({:?}): {}", config, cause),
+            Error::PlayerStopped => write!(f, "The player is stopped"),
+            Error::BadPath { path, back: _ } => write!(f, "Bad path: {:?}", path),
+            Error::NoPlaylist => write!(f, "No playlist given"),
+            Error::Client { source, back: _ } => write!(f, "Client error: {}", source),
+            Error::Ratings { source, back: _ } => write!(f, "Rating error: {}", source),
+            Error::Playcounts { source, back: _ } => write!(f, "Playcount error: {}", source),
+            Error::ExpectedInt { source, back: _ } => write!(f, "Expected integer: {}", source),
+            Error::Logging { source, back: _ } => write!(f, "Logging error: {}", source),
+            Error::Config { source, back: _ } => {
+                write!(f, "Error reading configuration: {}", source)
+            }
+        }
+    }
+}
 impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self)
     }
 }
-
-error_from!(log::SetLoggerError);
-error_from!(mpdpopm::Error);
-error_from!(mpdpopm::clients::Error);
-error_from!(mpdpopm::playcounts::Error);
-error_from!(mpdpopm::ratings::Error);
-error_from!(serde_lexpr::error::Error);
-error_from!(std::env::VarError);
-error_from!(std::num::ParseIntError);
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -159,7 +143,7 @@ pub struct Config {
     /// Channel to setup for assorted commands-- channel names must satisfy "[-a-zA-Z-9_.:]+"
     commands_chan: String,
     /// Sticker under which to store song ratings, as a textual representation of a number in
-    /// [0,255]
+    /// `[0,255]`
     rating_sticker: String,
 }
 
@@ -195,12 +179,16 @@ async fn map_tracks<'a, Iter: Iterator<Item = &'a str>>(
     let files = match args {
         Some(iter) => iter.map(|x| x.to_string()).collect(),
         None => {
-            let file = match client.status().await? {
+            let file = match client.status().await.map_err(|err| Error::Client {
+                source: err,
+                back: Backtrace::new(),
+            })? {
                 PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => curr
                     .file
                     .to_str()
-                    .context(BadPath {
+                    .ok_or_else(|| Error::BadPath {
                         path: curr.file.clone(),
+                        back: Backtrace::new(),
                     })?
                     .to_string(),
                 PlayerStatus::Stopped => {
@@ -226,7 +214,12 @@ async fn get_ratings<'a, Iter: Iterator<Item = &'a str>>(
 ) -> Result<()> {
     let mut ratings: Vec<(String, u8)> = Vec::new();
     for file in map_tracks(client, tracks).await? {
-        let rating = get_rating(client, sticker, &file).await?;
+        let rating = get_rating(client, sticker, &file)
+            .await
+            .map_err(|err| Error::Ratings {
+                source: err,
+                back: Backtrace::new(),
+            })?;
         ratings.push((file, rating));
     }
 
@@ -252,7 +245,13 @@ async fn set_rating(
         Some(uri) => format!("rate {} \\\"{}\\\"", rating, uri),
         None => format!("rate {}", rating),
     };
-    client.send_message(chan, &cmd).await?;
+    client
+        .send_message(chan, &cmd)
+        .await
+        .map_err(|err| Error::Client {
+            source: err,
+            back: Backtrace::new(),
+        })?;
 
     match arg {
         Some(uri) => info!("Set the rating for \"{}\" to \"{}\".", uri, rating),
@@ -271,7 +270,12 @@ async fn get_play_counts<'a, Iter: Iterator<Item = &'a str>>(
 ) -> Result<()> {
     let mut playcounts: Vec<(String, usize)> = Vec::new();
     for file in map_tracks(client, tracks).await? {
-        let playcount = match get_play_count(client, sticker, &file).await? {
+        let playcount = match get_play_count(client, sticker, &file)
+            .await
+            .map_err(|err| Error::Playcounts {
+                source: err,
+                back: Backtrace::new(),
+            })? {
             Some(pc) => pc,
             None => 0,
         };
@@ -300,7 +304,13 @@ async fn set_play_counts(
         Some(uri) => format!("setpc {} \\\"{}\\\"", playcount, uri),
         None => format!("setpc {}", playcount),
     };
-    client.send_message(chan, &cmd).await?;
+    client
+        .send_message(chan, &cmd)
+        .await
+        .map_err(|err| Error::Client {
+            source: err,
+            back: Backtrace::new(),
+        })?;
 
     match arg {
         Some(uri) => info!("Set the playcount for \"{}\" to \"{}\".", uri, playcount),
@@ -322,7 +332,12 @@ async fn get_last_playeds<'a, Iter: Iterator<Item = &'a str>>(
 ) -> Result<()> {
     let mut lastplayeds: Vec<(String, Option<u64>)> = Vec::new();
     for file in map_tracks(client, tracks).await? {
-        let lastplayed = get_last_played(client, sticker, &file).await?;
+        let lastplayed = get_last_played(client, sticker, &file)
+            .await
+            .map_err(|err| Error::Playcounts {
+                source: err,
+                back: Backtrace::new(),
+            })?;
         lastplayeds.push((file, lastplayed));
     }
 
@@ -361,7 +376,13 @@ async fn set_last_playeds(
         Some(uri) => format!("setlp {} {}", lastplayed, uri),
         None => format!("setlp {}", lastplayed),
     };
-    client.send_message(chan, &cmd).await?;
+    client
+        .send_message(chan, &cmd)
+        .await
+        .map_err(|err| Error::Client {
+            source: err,
+            back: Backtrace::new(),
+        })?;
 
     match arg {
         Some(uri) => info!("Set last played for \"{}\" to \"{}\".", uri, lastplayed),
@@ -376,7 +397,13 @@ async fn set_last_playeds(
 
 /// Retrieve the list of stored playlists
 async fn get_playlists(client: &mut Client) -> Result<()> {
-    let mut pls = client.get_stored_playlists().await?;
+    let mut pls = client
+        .get_stored_playlists()
+        .await
+        .map_err(|err| Error::Client {
+            source: err,
+            back: Backtrace::new(),
+        })?;
     pls.sort();
     println!("Stored playlists:");
     for pl in pls {
@@ -390,7 +417,13 @@ async fn findadd(client: &mut Client, chan: &str, filter: &str, case: bool) -> R
     let qfilter = quote(filter);
     debug!("findadd: got ``{}'', quoted to ``{}''.", filter, qfilter);
     let cmd = format!("{} {}", if case { "findadd" } else { "searchadd" }, qfilter);
-    client.send_message(chan, &cmd).await?;
+    client
+        .send_message(chan, &cmd)
+        .await
+        .map_err(|err| Error::Client {
+            source: err,
+            back: Backtrace::new(),
+        })?;
     Ok(())
 }
 
@@ -407,7 +440,11 @@ where
                 args.map(|a| quote(a)).collect::<Vec<String>>().join(" ")
             ),
         )
-        .await?;
+        .await
+        .map_err(|err| Error::Client {
+            source: err,
+            back: Backtrace::new(),
+        })?;
     Ok(())
 }
 
@@ -591,7 +628,7 @@ will add all songs whose artist tag matches the regexp \"pogues\" with a rating 
 async fn main() -> Result<()> {
     use mpdpopm::vars::{AUTHOR, VERSION};
 
-    let def_cfg = format!("{}/.mppopm", std::env::var("HOME")?);
+    let def_cfg = format!("{}/.mppopm", std::env::var("HOME").unwrap());
     let mut app = App::new("mppopm")
         .version(VERSION)
         .author(AUTHOR)
@@ -640,11 +677,16 @@ async fn main() -> Result<()> {
     // and it's not there, that's fine: we just proceed with a defualt configuration. But if they
     // explicitly named a configuration file, and it's not there, they presumably want to know
     // about that.
-    let cfgpth = matches.value_of("config").context(NoConfigArg {})?;
+    let cfgpth = matches
+        .value_of("config")
+        .ok_or_else(|| Error::NoConfigArg {})?;
     let mut cfg = match std::fs::read_to_string(cfgpth) {
         // The config file (defaulted or not) existed & we were able to read its contents-- parse
         // em!
-        Ok(text) => serde_lexpr::from_str(&text)?,
+        Ok(text) => serde_lexpr::from_str(&text).map_err(|err| Error::Config {
+            source: err,
+            back: Backtrace::new(),
+        })?,
         // The config file (defaulted or not) either didn't exist, or we were unable to read its
         // contents...
         Err(err) => match (err.kind(), matches.occurrences_of("config")) {
@@ -687,12 +729,18 @@ async fn main() -> Result<()> {
 
     match matches.value_of("port") {
         Some(port) => {
-            cfg.port = port.parse::<u16>()?;
+            cfg.port = port.parse::<u16>().map_err(|err| Error::ExpectedInt {
+                source: err,
+                back: Backtrace::new(),
+            })?;
         }
         None => {
             if cfg.port == 0 {
                 cfg.port = match std::env::var("MPD_PORT") {
-                    Ok(port) => port.parse::<u16>()?,
+                    Ok(port) => port.parse::<u16>().map_err(|err| Error::ExpectedInt {
+                        source: err,
+                        back: Backtrace::new(),
+                    })?,
                     Err(_) => 6600,
                 }
             }
@@ -714,12 +762,20 @@ async fn main() -> Result<()> {
         .appender(Appender::builder().build("stdout", Box::new(app)))
         .build(Root::builder().appender("stdout").build(lf))
         .unwrap();
-    log4rs::init_config(lcfg)?;
+    log4rs::init_config(lcfg).map_err(|err| Error::Logging {
+        source: err,
+        back: Backtrace::new(),
+    })?;
 
     trace!("logging configured.");
 
     // Whatever we do, we're going to need a Client, so whip one up now:
-    let mut client = Client::connect(format!("{}:{}", cfg.host, cfg.port)).await?;
+    let mut client = Client::connect(format!("{}:{}", cfg.host, cfg.port))
+        .await
+        .map_err(|err| Error::Client {
+            source: err,
+            back: Backtrace::new(),
+        })?;
 
     if let Some(subm) = matches.subcommand_matches("get-rating") {
         return Ok(get_ratings(
@@ -733,7 +789,7 @@ async fn main() -> Result<()> {
         return Ok(set_rating(
             &mut client,
             &cfg.commands_chan,
-            subm.value_of("rating").context(NoRating {})?,
+            subm.value_of("rating").ok_or_else(|| Error::NoRating {})?,
             subm.value_of("track"),
         )
         .await?);
@@ -750,8 +806,12 @@ async fn main() -> Result<()> {
             &mut client,
             &cfg.commands_chan,
             subm.value_of("play-count")
-                .context(NoPlayCount {})?
-                .parse::<usize>()?,
+                .ok_or_else(|| Error::NoPlayCount {})?
+                .parse::<usize>()
+                .map_err(|err| Error::ExpectedInt {
+                    source: err,
+                    back: Backtrace::new(),
+                })?,
             subm.value_of("track"),
         )
         .await?);
@@ -768,8 +828,12 @@ async fn main() -> Result<()> {
             &mut client,
             &cfg.commands_chan,
             subm.value_of("last-played")
-                .context(NoLastPlayed {})?
-                .parse::<u64>()?,
+                .ok_or_else(|| Error::NoLastPlayed {})?
+                .parse::<u64>()
+                .map_err(|err| Error::ExpectedInt {
+                    source: err,
+                    back: Backtrace::new(),
+                })?,
             subm.value_of("track"),
         )
         .await?);

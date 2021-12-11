@@ -21,7 +21,7 @@
 //!
 //! ## Discussion
 //!
-//! In the first releases of [mpdpopm] I foolishly forgot to add a version field to the
+//! In the first releases of [mpdpopm](crate) I foolishly forgot to add a version field to the
 //! configuration structure. I am now paying for my sin by having to attempt serializing two
 //! versions until one succeeds.
 //!
@@ -42,7 +42,6 @@ use crate::commands::{FormalParameter, Update};
 use crate::vars::{LOCALSTATEDIR, PREFIX};
 
 use serde::{Deserialize, Serialize};
-use snafu::Snafu;
 
 use std::path::PathBuf;
 
@@ -90,7 +89,7 @@ pub struct Config0 {
     /// Args, with replacement parameters, for the playcount command
     playcount_command_args: Vec<String>,
     /// Sticker under which to store song ratings, as a textual representation of a number in
-    /// [0,255]
+    /// `[0,255]`
     rating_sticker: String,
     /// Command, with replacement parameters, to be run when a song is rated
     ratings_command: String,
@@ -100,7 +99,7 @@ pub struct Config0 {
     gen_cmds: Vec<GeneralizedCommandDefn>,
 }
 
-/// [mpdpopm] can communicate with MPD over either a local Unix socket, or over regular TCP
+/// [mpdpopm](crate) can communicate with MPD over either a local Unix socket, or over regular TCP
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub enum Connection {
     /// Local Unix socket-- payload is the path to the socket
@@ -160,7 +159,7 @@ pub struct Config {
     _version: String,
     /// Location of log file
     pub log: PathBuf,
-    /// How to connceto to mpd
+    /// How to connect to mpd
     pub conn: Connection,
     /// The `mpd' root music directory, relative to the host on which *this* daemon is running
     pub local_music_dir: PathBuf,
@@ -180,7 +179,7 @@ pub struct Config {
     /// Args, with replacement parameters, for the playcount command
     pub playcount_command_args: Vec<String>,
     /// Sticker under which to store song ratings, as a textual representation of a number in
-    /// [0,255]
+    /// `[0,255]`
     pub rating_sticker: String,
     /// Command, with replacement parameters, to be run when a song is rated
     pub ratings_command: String,
@@ -237,22 +236,23 @@ impl From<Config0> for Config {
     }
 }
 
-// https://github.com/rotty/lexpr-rs/issues/77
-// #[derive(Debug, Deserialize, Serialize)]
-// #[serde(tag = "version")]
-// enum Configurations {
-//     #[serde(rename = "1")]
-//     V1(Config),
-// }
-
-#[derive(Debug, Snafu)]
+#[derive(Debug)]
 pub enum Error {
     /// Failure to parse
-    #[snafu(display("Failed to parse configuration: `{}', `{}'", outer, inner))]
     ParseFail {
         outer: Box<dyn std::error::Error>,
         inner: Box<dyn std::error::Error>,
     },
+}
+
+impl std::fmt::Display for Error {
+    #[allow(unreachable_patterns)] // the _ arm is *currently* unreachable
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Error::ParseFail { outer, inner: _ } => write!(f, "Parse failure: {}", outer),
+            _ => write!(f, "Unknown configuration error"),
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

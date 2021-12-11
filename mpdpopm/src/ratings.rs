@@ -17,21 +17,22 @@
 //!
 //! # Introduction
 //!
-//! This module contains types implementing a basic rating functionality for `mpd'.
+//! This module contains types implementing a basic rating functionality for
+//! [MPD](http://www.musicpd.org).
 //!
 //! # Discussion
 //!
-//! Rating messages to the relevant channel take the form "RATING( TRACK)?" (the two components can
+//! Rating messages to the relevant channel take the form `RATING( TRACK)?` (the two components can
 //! be separated by any whitespace). The rating can be given by an integer between 0 & 255
-//! (inclusive) represented in base ten, or as one-to-five asterisks (i.e. \*{1,5}). In the latter
+//! (inclusive) represented in base ten, or as one-to-five asterisks (i.e. `\*{1,5}`). In the latter
 //! case, the rating will be mapped to 1-255 as per Winamp's
 //! [convention](http://forums.winamp.com/showpost.php?p=2903240&postcount=94):
 //!
-//!   - 224-255 :: 5 stars when READ with windows explorer, writes 255
-//!   - 160-223 :: 4 stars when READ with windows explorer, writes 196
-//!   - 096-159 :: 3 stars when READ with windows explorer, writes 128
-//!   - 032-095 :: 2 stars when READ with windows explorer, writes 64
-//!   - 001-031 :: 1 stars when READ with windows explorer, writes 1
+//!   - 224-255: 5 stars when READ with windows explorer, writes 255
+//!   - 160-223: 4 stars when READ with windows explorer, writes 196
+//!   - 096-159: 3 stars when READ with windows explorer, writes 128
+//!   - 032-095: 2 stars when READ with windows explorer, writes 64
+//!   - 001-031: 1 stars when READ with windows explorer, writes 1
 //!
 //! NB a rating of zero means "not rated".
 //!
@@ -41,9 +42,8 @@
 
 use crate::clients::Client;
 use crate::commands::{spawn, PinnedTaggedCmdFuture, TaggedCommandFuture};
-use crate::error_from;
 
-use snafu::{Backtrace, GenerateBacktrace, OptionExt, ResultExt, Snafu};
+use backtrace::Backtrace;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -53,37 +53,62 @@ use std::path::PathBuf;
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// An enumeration of ratings errors
-#[derive(Debug, Snafu)]
+#[derive(Debug)]
 pub enum Error {
-    #[snafu(display("{}", cause))]
-    Other {
-        #[snafu(source(true))]
-        cause: Box<dyn std::error::Error>,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    /// Unable to interpret a string as a rating
-    #[snafu(display("Couldn't interpret `{}' as a rating", text))]
-    RatingError {
-        #[snafu(source(from(std::num::ParseIntError, Box::new)))]
-        cause: Box<dyn std::error::Error>,
+    Rating {
+        source: std::num::ParseIntError,
         text: String,
     },
-    #[snafu(display("Can't rate the current track when the player is stopped"))]
     PlayerStopped,
-    #[snafu(display("`{}' is not implemented, yet", feature))]
-    NotImplemented { feature: String },
-    #[snafu(display("Path `{}' cannot be converted to a String", pth.display()))]
+    NotImplemented {
+        feature: String,
+    },
     BadPath {
         pth: PathBuf,
-        #[snafu(backtrace(true))]
+        back: Backtrace,
+    },
+    Client {
+        source: crate::clients::Error,
+        back: Backtrace,
+    },
+    Command {
+        source: crate::commands::Error,
         back: Backtrace,
     },
 }
 
-error_from!(crate::clients::Error);
-error_from!(crate::commands::Error);
-error_from!(std::num::ParseIntError);
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Error::Rating { source, text } => write!(
+                f,
+                "Unable to interpret ``{}'' as a rating: {}",
+                text, source
+            ),
+            Error::PlayerStopped => write!(f, "Player stopped"),
+            Error::NotImplemented { feature } => write!(f, "{} not implemented", feature),
+            Error::BadPath { pth, back: _ } => write!(f, "Bad path: {:?}", pth),
+            Error::Client { source, back: _ } => write!(f, "Client error: {}", source),
+            Error::Command { source, back: _ } => write!(f, "Command error: {}", source),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match &self {
+            Error::Rating {
+                text: _,
+                ref source,
+            } => Some(source),
+            Error::Client {
+                ref source,
+                back: _,
+            } => Some(source),
+            _ => None,
+        }
+    }
+}
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -106,11 +131,11 @@ pub struct RatingRequest {
     pub track: RatedTrack,
 }
 
-/// Produce a RatingRequest instance from a line of `mpd' output.
+/// Produce a RatingRequest instance from a line of MPD output.
 impl std::convert::TryFrom<&str> for RatingRequest {
     type Error = Error;
 
-    /// Attempt to produce a RatingRequest instance from a line of `mpd' response to a
+    /// Attempt to produce a RatingRequest instance from a line of MPD response to a
     /// "readmessages" command. After the channel line, each subsequent line will be of the form
     /// "message: $MESSAGE"-- this method assumes that the "message: " prefix has been stripped off
     /// (i.e. we're dealing with a single line of text containing only our custom message format).
@@ -138,7 +163,8 @@ impl std::convert::TryFrom<&str> for RatingRequest {
                 "****" => 196,
                 "*****" => 255,
                 // failing that, we try just interperting `rating' as an unsigned integer:
-                _ => rating.parse::<u8>().context(RatingError {
+                _ => rating.parse::<u8>().map_err(|err| Error::Rating {
+                    source: err,
                     text: String::from(rating),
                 })?,
             }
@@ -193,7 +219,13 @@ mod rating_request_tests {
 
 /// Retrieve the rating for a track as an unsigned int from zero to 255
 pub async fn get_rating(client: &mut Client, sticker: &str, file: &str) -> Result<u8> {
-    match client.get_sticker::<u8>(file, sticker).await? {
+    match client
+        .get_sticker::<u8>(file, sticker)
+        .await
+        .map_err(|err| Error::Client {
+            source: err,
+            back: Backtrace::new(),
+        })? {
         Some(x) => Ok(x),
         None => Ok(0u8),
     }
@@ -215,7 +247,11 @@ pub async fn set_rating<I: Iterator<Item = String>>(
 ) -> Result<Option<PinnedTaggedCmdFuture>> {
     client
         .set_sticker(file, sticker, &format!("{}", rating))
-        .await?;
+        .await
+        .map_err(|err| Error::Client {
+            source: err,
+            back: Backtrace::new(),
+        })?;
 
     // This isn't the best way to indicate "no command"; should take an Option, instead
     if cmd.len() == 0 {
@@ -228,15 +264,19 @@ pub async fn set_rating<I: Iterator<Item = String>>(
         "full-file".to_string(),
         full_path
             .to_str()
-            .context(BadPath {
+            .ok_or_else(|| Error::BadPath {
                 pth: full_path.clone(),
+                back: Backtrace::new(),
             })?
             .to_string(),
     );
     params.insert("rating".to_string(), format!("{}", rating));
 
     Ok(Some(TaggedCommandFuture::pin(
-        spawn(cmd, args, &params)?,
+        spawn(cmd, args, &params).map_err(|err| Error::Command {
+            source: err,
+            back: Backtrace::new(),
+        })?,
         None, /* No need to update the DB */
     )))
 }

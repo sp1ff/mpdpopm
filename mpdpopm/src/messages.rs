@@ -28,9 +28,9 @@
 //!
 //! The following commands are built-in:
 //!
-//!    - set rating: "rate RATING( TRACK)?"
-//!    - set playcount: "setpc PC( TRACK)?"
-//!    - set lastplayed: "setlp TIMESTAMP( TRACK)?"
+//!    - set rating: `rate RATING( TRACK)?`
+//!    - set playcount: `setpc PC( TRACK)?`
+//!    - set lastplayed: `setlp TIMESTAMP( TRACK)?`
 //!
 //! There is no need to provide corresponding accessors since this functionality is already provided
 //! via "sticker get". Dedicated accessors could provide the same functionality with slightly more
@@ -39,10 +39,10 @@
 //!
 //! I'm expanding the MPD filter functionality to include attributes tracked by mpdpopm:
 //!
-//!    - findadd replacement: "findadd FILTER [sort TYPE] [window START:END]"
+//!    - findadd replacement: `findadd FILTER [sort TYPE] [window START:END]`
 //!      (cf. [here](https://www.musicpd.org/doc/html/protocol.html#the-music-database))
 //!
-//!    - searchadd replacement: "searchadd FILTER [sort TYPE] [window START:END]"
+//!    - searchadd replacement: `searchadd FILTER [sort TYPE] [window START:END]`
 //!      (cf. [here](https://www.musicpd.org/doc/html/protocol.html#the-music-database))
 //!
 //! Additional commands may be added through the
@@ -50,15 +50,14 @@
 
 use crate::clients::{Client, IdleClient, PlayerStatus};
 use crate::commands::{GeneralizedCommand, PinnedTaggedCmdFuture};
-use crate::error_from;
 use crate::filters::ExpressionParser;
 use crate::filters_ast::{evaluate, FilterStickerNames};
 use crate::playcounts::{set_last_played, set_play_count};
 use crate::ratings::{set_rating, RatedTrack, RatingRequest};
 
+use backtrace::Backtrace;
 use boolinator::Boolinator;
 use log::debug;
-use snafu::{Backtrace, GenerateBacktrace, OptionExt, Snafu};
 
 use std::collections::{HashMap, VecDeque};
 use std::convert::TryFrom;
@@ -67,56 +66,87 @@ use std::path::PathBuf;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Snafu)]
+#[derive(Debug)]
 pub enum Error {
-    #[snafu(display("The path `{}' cannot be converted to a UTF-8 string", pth.display()))]
-    BadPath { pth: PathBuf },
-    #[snafu(display("{}", msg))]
-    FilterParseError { msg: String },
-    #[snafu(display("Invalid unquoted character in {}", c))]
-    InvalidChar { c: u8 },
-    #[snafu(display("Missing closing quotes"))]
-    NoClosingQuotes,
-    #[snafu(display("No command specified"))]
-    NoCommand,
-    #[snafu(display("`{}' is not implemented, yet", feature))]
-    NotImplemented { feature: String },
-    #[snafu(display("{}", cause))]
-    Other {
-        #[snafu(source(true))]
-        cause: Box<dyn std::error::Error>,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
+    BadPath {
+        pth: PathBuf,
     },
-    #[snafu(display("Can't rate the current track when the player is stopped"))]
+    FilterParseError {
+        msg: String,
+    },
+    InvalidChar {
+        c: u8,
+    },
+    NoClosingQuotes,
+    NoCommand,
+    NotImplemented {
+        feature: String,
+    },
     PlayerStopped,
-    #[snafu(display("Trailing backslash"))]
     TrailingBackslash,
-    #[snafu(display(
-        "We received messages for an unknown channel `{}'; this is likely a bug; please
-consider filing a report to sp1ff@pobox.com",
-        chan
-    ))]
     UnknownChannel {
         chan: String,
-        #[snafu(backtrace(true))]
         back: Backtrace,
     },
-    #[snafu(display("We received an unknown message: `{}'", name))]
     UnknownCommand {
         name: String,
-        #[snafu(backtrace(true))]
+        back: Backtrace,
+    },
+    Client {
+        source: crate::clients::Error,
+        back: Backtrace,
+    },
+    Ratings {
+        source: crate::ratings::Error,
+        back: Backtrace,
+    },
+    Playcount {
+        source: crate::playcounts::Error,
+        back: Backtrace,
+    },
+    Filter {
+        source: crate::filters_ast::Error,
+        back: Backtrace,
+    },
+    Command {
+        source: crate::commands::Error,
+        back: Backtrace,
+    },
+    Utf8 {
+        source: std::str::Utf8Error,
+        buf: Vec<u8>,
+        back: Backtrace,
+    },
+    ExpectedInt {
+        source: std::num::ParseIntError,
+        text: String,
         back: Backtrace,
     },
 }
 
-error_from!(crate::clients::Error);
-error_from!(crate::commands::Error);
-error_from!(crate::filters_ast::Error);
-error_from!(crate::playcounts::Error);
-error_from!(crate::ratings::Error);
-error_from!(std::num::ParseIntError);
-error_from!(std::str::Utf8Error);
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Error::BadPath { pth } => write!(f, "Bad path: {:?}", pth),
+            Error::FilterParseError { msg } => write!(f, "Parse error: ``{}''", msg),
+            Error::InvalidChar { c } => write!(f, "Invalid unquoted character {}", c),
+            Error::NoClosingQuotes => write!(f, "Missing closing quotes"),
+            Error::NoCommand => write!(f, "No command specified"),
+            Error::NotImplemented { feature } => write!(f, "`{}' not implemented, yet", feature),
+            Error::PlayerStopped => write!(f, "Can't operate on the current track when the player is stopped"),
+            Error::TrailingBackslash => write!(f, "Trailing backslash"),
+            Error::UnknownChannel {chan, back: _ } => write!(f, "We received messages for an unknown channel `{}'; this is likely a bug; please consider filing a report to sp1ff@pobox.com", chan),
+            Error::UnknownCommand {name, back: _ } => write!(f, "We received an unknown message ``{}''", name),
+            Error::Client { source, back: _ } => write!(f, "Client error: {}", source), 
+            Error::Ratings { source, back: _ } => write!(f, "Ratings eror: {}", source),
+            Error::Playcount { source, back: _ } => write!(f, "Playcount error: {}", source), 
+            Error::Filter { source, back: _ } => write!(f, "Filter error: {}", source), 
+            Error::Command { source, back: _ } => write!(f, "Command error: {}", source), 
+            Error::Utf8 { source, buf, back: _ } => write!(f, "UTF8 error {} ({:#?})", source, buf), 
+            Error::ExpectedInt { source, text, back: _ } => write!(f, "``{}''L {}", source, text),
+        }
+    }
+}
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -126,7 +156,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 ///
 /// When a client sends a command to [mpdpopm](crate), it will look like this on the wire:
 ///
+/// ```text
 /// sendmessage ${CHANNEL} "some-command \"with space\" simple \"'with single' and \\\\\""
+/// ```
 ///
 /// In other words, the MPD "sendmessage" command takes two parameters: the channel and the
 /// message. The recipient (i.e. us) is responsible for breaking up the message into its constituent
@@ -136,13 +168,15 @@ pub type Result<T> = std::result::Result<T, Error>;
 ///
 /// 1. an un-quoted token may contain any printable ASCII character except space, tab, ' & "
 ///
-/// 2. to include spaces, tabs, '-s or "-s, the token must be enclosed in "-s, and any "-s or \-s
+/// 2. to include spaces, tabs, '-s or "-s, the token must be enclosed in "-s, and any "-s or \\-s
 ///    therein must be backslash escaped
 ///
 /// When the messages is delivered to us, it has already been un-escaped; i.e. we will see the
 /// string:
 ///
+/// ```text
 /// some-command "with space" simple "'with single' and \\"
+/// ```
 ///
 /// This function will break that string up into individual tokens with one more level
 /// of escaping removed; i.e. it will return an iterator that will yield the four tokens:
@@ -150,7 +184,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// 1. some-command
 /// 2. with space
 /// 3. simple
-/// 4. 'with single' and \
+/// 4. 'with single' and \\
 ///
 /// [MPD](https://github.com/MusicPlayerDaemon/MPD) has a nice
 /// [implementation](https://github.com/MusicPlayerDaemon/MPD/blob/master/src/util/Tokenizer.cxx#L170)
@@ -160,8 +194,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 ///
 /// Once I realized that I could split slices I saw how to implement an Iterator that do the same
 /// thing (an idiomatic interface to the tokenization backed by a zero-copy implementation). I was
-/// inspired by "My Favorite Rust Function Signature"
-/// <https://www.brandonsmith.ninja/blog/favorite-rust-function>.
+/// inspired by [My Favorite Rust Function
+/// Signature](<https://www.brandonsmith.ninja/blog/favorite-rust-function>).
 ///
 /// NB. This method works in terms of a slice of [`u8`] because we can't index into Strings in
 /// Rust, and MPD deals only in terms of ASCII at any rate.
@@ -379,11 +413,18 @@ where
     where
         E: Extend<PinnedTaggedCmdFuture>,
     {
-        let m = idle_client.get_messages().await?;
+        let m = idle_client
+            .get_messages()
+            .await
+            .map_err(|err| Error::Client {
+                source: err,
+                back: Backtrace::new(),
+            })?;
         for (chan, msgs) in m {
             // Only supporting a single channel, ATM
-            (chan == command_chan).as_option().context(UnknownChannel {
+            (chan == command_chan).ok_or_else(|| Error::UnknownChannel {
                 chan: String::from(chan),
+                back: Backtrace::new(),
             })?;
             for msg in msgs {
                 cmds.extend(self.process(msg, client, &state, stickers).await?);
@@ -425,7 +466,10 @@ where
         client: &mut Client,
         state: &PlayerStatus,
     ) -> Result<Option<PinnedTaggedCmdFuture>> {
-        let req = RatingRequest::try_from(msg)?;
+        let req = RatingRequest::try_from(msg).map_err(|err| Error::Ratings {
+            source: err,
+            back: Backtrace::new(),
+        })?;
         let pathb = match req.track {
             RatedTrack::Current => match state {
                 PlayerStatus::Stopped => {
@@ -440,7 +484,9 @@ where
                 });
             }
         };
-        let path: &str = pathb.to_str().context(BadPath { pth: pathb.clone() })?;
+        let path: &str = pathb
+            .to_str()
+            .ok_or_else(|| Error::BadPath { pth: pathb.clone() })?;
         debug!("Setting a rating of {} for `{}'.", req.rating, path);
 
         Ok(set_rating(
@@ -452,7 +498,11 @@ where
             self.ratings_cmd_args.clone(),
             self.music_dir,
         )
-        .await?)
+        .await
+        .map_err(|err| Error::Ratings {
+            source: err,
+            back: Backtrace::new(),
+        })?)
     }
 
     /// Handle `setpc': "PC( TRACK)?"
@@ -464,8 +514,24 @@ where
     ) -> Result<Option<PinnedTaggedCmdFuture>> {
         let text = msg.trim();
         let (pc, track) = match text.find(char::is_whitespace) {
-            Some(idx) => (text[..idx].parse::<usize>()?, &text[idx + 1..]),
-            None => (text.parse::<usize>()?, ""),
+            Some(idx) => (
+                text[..idx]
+                    .parse::<usize>()
+                    .map_err(|err| Error::ExpectedInt {
+                        source: err,
+                        text: String::from(text),
+                        back: Backtrace::new(),
+                    })?,
+                &text[idx + 1..],
+            ),
+            None => (
+                text.parse::<usize>().map_err(|err| Error::ExpectedInt {
+                    source: err,
+                    text: String::from(text),
+                    back: Backtrace::new(),
+                })?,
+                "",
+            ),
         };
         let file = if track.is_empty() {
             match state {
@@ -475,7 +541,7 @@ where
                 PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => curr
                     .file
                     .to_str()
-                    .context(BadPath {
+                    .ok_or_else(|| Error::BadPath {
                         pth: curr.file.clone(),
                     })?
                     .to_string(),
@@ -496,7 +562,11 @@ where
             &mut self.playcount_cmd_args.clone(),
             self.music_dir,
         )
-        .await?)
+        .await
+        .map_err(|err| Error::Playcount {
+            source: err,
+            back: Backtrace::new(),
+        })?)
     }
 
     /// Handle `setlp': "LASTPLAYED( TRACK)?"
@@ -508,8 +578,24 @@ where
     ) -> Result<Option<PinnedTaggedCmdFuture>> {
         let text = msg.trim();
         let (lp, track) = match text.find(char::is_whitespace) {
-            Some(idx) => (text[..idx].parse::<u64>()?, &text[idx + 1..]),
-            None => (text.parse::<u64>()?, ""),
+            Some(idx) => (
+                text[..idx]
+                    .parse::<u64>()
+                    .map_err(|err| Error::ExpectedInt {
+                        source: err,
+                        text: String::from(text),
+                        back: Backtrace::new(),
+                    })?,
+                &text[idx + 1..],
+            ),
+            None => (
+                text.parse::<u64>().map_err(|err| Error::ExpectedInt {
+                    source: err,
+                    text: String::from(text),
+                    back: Backtrace::new(),
+                })?,
+                "",
+            ),
         };
         let file = if track.is_empty() {
             match state {
@@ -519,7 +605,7 @@ where
                 PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => curr
                     .file
                     .to_str()
-                    .context(BadPath {
+                    .ok_or_else(|| Error::BadPath {
                         pth: curr.file.clone(),
                     })?
                     .to_string(),
@@ -527,7 +613,12 @@ where
         } else {
             track.to_string()
         };
-        set_last_played(client, self.lastplayed_sticker, &file, lp).await?;
+        set_last_played(client, self.lastplayed_sticker, &file, lp)
+            .await
+            .map_err(|err| Error::Playcount {
+                source: err,
+                back: Backtrace::new(),
+            })?;
         Ok(None)
     }
 
@@ -543,7 +634,11 @@ where
         let mut buf = msg.into_bytes();
         let args: VecDeque<&str> = tokenize(&mut buf)
             .map(|r| match r {
-                Ok(buf) => Ok(std::str::from_utf8(buf)?),
+                Ok(buf) => Ok(std::str::from_utf8(buf).map_err(|err| Error::Utf8 {
+                    source: err,
+                    buf: buf.to_vec(),
+                    back: Backtrace::new(),
+                })?),
                 Err(err) => Err(err),
             })
             .collect::<Result<VecDeque<&str>>>()?;
@@ -568,7 +663,13 @@ where
         debug!("ast: {:#?}", ast);
 
         let mut results = Vec::new();
-        for song in evaluate(&ast, true, client, stickers).await? {
+        for song in evaluate(&ast, true, client, stickers)
+            .await
+            .map_err(|err| Error::Filter {
+                source: err,
+                back: Backtrace::new(),
+            })?
+        {
             results.push(client.add(&song).await);
         }
         match results
@@ -576,7 +677,10 @@ where
             .collect::<std::result::Result<Vec<()>, crate::clients::Error>>()
         {
             Ok(_) => Ok(None),
-            Err(err) => Err(Error::from(err)),
+            Err(err) => Err(Error::Client {
+                source: err,
+                back: Backtrace::new(),
+            }),
         }
     }
 
@@ -592,7 +696,11 @@ where
         let mut buf = msg.into_bytes();
         let args: VecDeque<&str> = tokenize(&mut buf)
             .map(|r| match r {
-                Ok(buf) => Ok(std::str::from_utf8(buf)?),
+                Ok(buf) => Ok(std::str::from_utf8(buf).map_err(|err| Error::Utf8 {
+                    source: err,
+                    buf: buf.to_vec(),
+                    back: Backtrace::new(),
+                })?),
                 Err(err) => Err(err),
             })
             .collect::<Result<VecDeque<&str>>>()?;
@@ -617,7 +725,13 @@ where
         debug!("ast: {:#?}", ast);
 
         let mut results = Vec::new();
-        for song in evaluate(&ast, false, client, stickers).await? {
+        for song in evaluate(&ast, false, client, stickers)
+            .await
+            .map_err(|err| Error::Filter {
+                source: err,
+                back: Backtrace::new(),
+            })?
+        {
             results.push(client.add(&song).await);
         }
         match results
@@ -625,7 +739,10 @@ where
             .collect::<std::result::Result<Vec<()>, crate::clients::Error>>()
         {
             Ok(_) => Ok(None),
-            Err(err) => Err(Error::from(err)),
+            Err(err) => Err(Error::Client {
+                source: err,
+                back: Backtrace::new(),
+            }),
         }
     }
 
@@ -638,7 +755,11 @@ where
         let mut buf = msg.into_bytes();
         let mut args: VecDeque<&str> = tokenize(&mut buf)
             .map(|r| match r {
-                Ok(buf) => Ok(std::str::from_utf8(buf)?),
+                Ok(buf) => Ok(std::str::from_utf8(buf).map_err(|err| Error::Utf8 {
+                    source: err,
+                    buf: buf.to_vec(),
+                    back: Backtrace::new(),
+                })?),
                 Err(err) => Err(err),
             })
             .collect::<Result<VecDeque<&str>>>()?;
@@ -652,7 +773,17 @@ where
         let gen_cmd = self
             .gen_cmds
             .get(cmd)
-            .context(UnknownCommand { name: cmd.clone() })?;
-        Ok(Some(gen_cmd.execute(args.iter().cloned(), &state)?))
+            .ok_or_else(|| Error::UnknownCommand {
+                name: String::from(cmd),
+                back: Backtrace::new(),
+            })?;
+        Ok(Some(
+            gen_cmd
+                .execute(args.iter().cloned(), &state)
+                .map_err(|err| Error::Command {
+                    source: err,
+                    back: Backtrace::new(),
+                })?,
+        ))
     }
 }

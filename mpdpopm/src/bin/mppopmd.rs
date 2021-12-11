@@ -27,10 +27,10 @@
 
 use mpdpopm::config;
 use mpdpopm::config::Config;
-use mpdpopm::error_from;
 use mpdpopm::mpdpopm;
 use mpdpopm::vars::LOCALSTATEDIR;
 
+use backtrace::Backtrace;
 use clap::{App, Arg};
 use errno::errno;
 use libc::{
@@ -45,7 +45,6 @@ use log4rs::{
     config::{Appender, Root},
     encode::pattern::PatternEncoder,
 };
-use snafu::{Backtrace, GenerateBacktrace, OptionExt, Snafu};
 
 use std::{ffi::CString, fmt, path::PathBuf};
 
@@ -53,70 +52,71 @@ use std::{ffi::CString, fmt, path::PathBuf};
 //                                 mppopmd application Error type                                 //
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// Anything that implements std::process::Termination can be used as the return type for `main'. The
-// std lib implements impl<E: Debug> Termination for Result<()undefined E> per
-// <https://www.joshmcguigan.com/blog/custom-exit-status-codes-rust/>, so we're good-- just don't
-// derive Debug-- implement by hand to produce something human-friendly (since this will be used for
-// main's return value)
-#[derive(Snafu)]
+#[non_exhaustive]
 pub enum Error {
-    #[snafu(display("{}", cause))]
-    Other {
-        #[snafu(source(true))]
-        cause: Box<dyn std::error::Error>,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    #[snafu(display(
-        "The config argument couldn't be retrieved. This is likely a bug; please \
-consider filing a report with sp1ff@pobox.com"
-    ))]
     NoConfigArg,
-    #[snafu(display(
-        "While trying to read the configuration file `{:?}', got `{}'",
-        config,
-        cause
-    ))]
     NoConfig {
         config: std::path::PathBuf,
-        #[snafu(source(true))]
         cause: std::io::Error,
     },
-    #[snafu(display("Failed to fork this process: {}", errno))]
     Fork {
         errno: errno::Errno,
-        #[snafu(backtrace(true))]
         back: Backtrace,
     },
-    #[snafu(display("Failed to open /dev/null: {}", errno))]
-    DevNull {
-        errno: errno::Errno,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    #[snafu(display("Path to lock file contained a null"))]
     PathContainsNull {
-        #[snafu(backtrace(true))]
         back: Backtrace,
     },
-    #[snafu(display("Error opening lock file: {}", errno))]
     OpenLockFile {
         errno: errno::Errno,
-        #[snafu(backtrace(true))]
         back: Backtrace,
     },
-    #[snafu(display("Error locking lockfile: {}", errno))]
     LockFile {
         errno: errno::Errno,
-        #[snafu(backtrace(true))]
         back: Backtrace,
     },
-    #[snafu(display("Error writing pid to lockfile: {}", errno))]
     WritePid {
         errno: errno::Errno,
-        #[snafu(backtrace(true))]
         back: Backtrace,
     },
+    Config {
+        source: crate::config::Error,
+        back: Backtrace,
+    },
+    Logging {
+        source: log::SetLoggerError,
+        back: Backtrace,
+    },
+    MpdPopm {
+        source: mpdpopm::Error,
+        back: Backtrace,
+    },
+}
+
+impl std::fmt::Display for Error {
+    #[allow(unreachable_patterns)] // the _ arm is *currently* unreachable
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Error::NoConfigArg => write!(f, "No configuration file given"),
+            Error::NoConfig { config, cause } => {
+                write!(f, "Configuration error ({:?}): {}", config, cause)
+            }
+            Error::Fork { errno, back: _ } => write!(f, "When forking, got errno {}", errno),
+            Error::PathContainsNull { back: _ } => write!(f, "Path contains a null character"),
+            Error::OpenLockFile { errno, back: _ } => {
+                write!(f, "While opening lock file, got errno {}", errno)
+            }
+            Error::LockFile { errno, back: _ } => {
+                write!(f, "While locking the lock file, got errno {}", errno)
+            }
+            Error::WritePid { errno, back: _ } => {
+                write!(f, "While writing pid file, got errno {}", errno)
+            }
+            Error::Config { source, back: _ } => write!(f, "Configuration error: {}", source),
+            Error::Logging { source, back: _ } => write!(f, "Logging error: {}", source),
+            Error::MpdPopm { source, back: _ } => write!(f, "mpdpopm error: {}", source),
+            _ => write!(f, "Unknown mppopmd error"),
+        }
+    }
 }
 
 impl fmt::Debug for Error {
@@ -125,39 +125,32 @@ impl fmt::Debug for Error {
     }
 }
 
-error_from!(log::SetLoggerError);
-error_from!(mpdpopm::Error);
-error_from!(mpdpopm::config::Error);
-error_from!(serde_lexpr::error::Error);
-error_from!(std::ffi::NulError);
-error_from!(std::io::Error);
-
 type Result = std::result::Result<(), Error>;
 
 /// Make this process into a daemon
 ///
-/// I first tried to use the `daemonize' crate, without success. Perhaps I wasn't using it
-/// correctly. In any event, both to debug the issue(s) and for my own edification, I decided to
-/// hand-code the daemonization process.
+/// I first tried to use the [daemonize](https://docs.rs/daemonize) crate, without success. Perhaps
+/// I wasn't using it correctly. In any event, both to debug the issue(s) and for my own
+/// edification, I decided to hand-code the daemonization process.
 ///
 /// After spending a bit of time digging around the world of TTYs, process groups & sessions, I'm
 /// beginning to understand what "daemon" means and how to create one. The first step is to
 /// dissassociate this process from it's controlling terminal & make sure it cannot acquire a new
-/// one. This, AFAIK, is to disconnect us from any job control associated with that terminal, and in
+/// one. This, AFAIU, is to disconnect us from any job control associated with that terminal, and in
 /// particular to prevent us from being disturbed when & if that terminal is closed (I'm still hazy
 /// on the details, but at least the session leader (and perhaps it's descendants) will be sent a
-/// SIGHUP in that eventuality).
+/// `SIGHUP` in that eventuality).
 ///
 /// After that, the rest of the work seems to consist of shedding all the things we (may have)
 /// inherited from our creator. Things such as:
 ///
-///     - pwd
-///     - umask
-///     - all file descriptors
-///       - stdin, stdout & stderr should be closed (we don't know from or to where they may have
-///         been redirected), and re-opened to locations appropriate to this daemon
-///       - any other file descriptors should be closed; this process can then re-open any that
-///         it needs for its work
+///   - pwd
+///   - umask
+///   - all file descriptors
+///     - stdin, stdout & stderr should be closed (we don't know from or to where they may have
+///       been redirected), and re-opened to locations appropriate to this daemon
+///     - any other file descriptors should be closed; this process can then re-open any that
+///       it needs for its work
 ///
 /// In the end, the problem turned out not to be the daeomonize crate, but rather a more subtle
 /// issue with the interaction between forking & the tokio runtime-- tokio will spin-up a thread
@@ -165,9 +158,11 @@ type Result = std::result::Result<(), Error>;
 /// starting-up the tokio runtime. In any event, I learned a lot about process management & wound up
 /// choosing to do a few things differently.
 ///
-/// <http://www.steve.org.uk/Reference/Unix/faq_2.html>
-/// <https://en.wikipedia.org/wiki/SIGHUP>
-/// <http://www.enderunix.org/docs/eng/daemon.php>
+/// References:
+///
+///   - <http://www.steve.org.uk/Reference/Unix/faq_2.html>
+///   - <https://en.wikipedia.org/wiki/SIGHUP>
+///   - <http://www.enderunix.org/docs/eng/daemon.php>
 
 fn daemonize() -> Result {
     use std::os::unix::ffi::OsStringExt;
@@ -182,7 +177,7 @@ fn daemonize() -> Result {
         if pid < 0 {
             return Err(Error::Fork {
                 errno: errno(),
-                back: Backtrace::generate(),
+                back: Backtrace::new(),
             });
         } else if pid != 0 {
             // We are the parent process-- exit.
@@ -202,7 +197,7 @@ fn daemonize() -> Result {
         if pid < 0 {
             return Err(Error::Fork {
                 errno: errno(),
-                back: Backtrace::generate(),
+                back: Backtrace::new(),
             });
         } else if pid != 0 {
             // We are the parent process-- exit.
@@ -211,7 +206,7 @@ fn daemonize() -> Result {
 
         // We next change the present working directory to avoid keeping the present one in
         // use. `mppopmd' can run pretty much anywhere, so /tmp is as good a place as any.
-        std::env::set_current_dir("/tmp")?;
+        std::env::set_current_dir("/tmp").unwrap();
 
         umask(0);
 
@@ -230,7 +225,7 @@ fn daemonize() -> Result {
         dup(i);
 
         let pth: PathBuf = [LOCALSTATEDIR, "run", "mppopmd.pid"].iter().collect();
-        let pth_c = CString::new(pth.into_os_string().into_vec())?;
+        let pth_c = CString::new(pth.into_os_string().into_vec()).unwrap();
         let fd = open(
             pth_c.as_ptr(),
             libc::O_RDWR | libc::O_CREAT | libc::O_TRUNC,
@@ -239,13 +234,13 @@ fn daemonize() -> Result {
         if -1 == fd {
             return Err(Error::OpenLockFile {
                 errno: errno(),
-                back: Backtrace::generate(),
+                back: Backtrace::new(),
             });
         }
         if lockf(fd, F_TLOCK, 0) < 0 {
             return Err(Error::LockFile {
                 errno: errno(),
-                back: Backtrace::generate(),
+                back: Backtrace::new(),
             });
         }
 
@@ -255,11 +250,11 @@ fn daemonize() -> Result {
         let pid = getpid();
         let pid_buf = format!("{}", pid).into_bytes();
         let pid_length = pid_buf.len();
-        let pid_c = CString::new(pid_buf)?;
+        let pid_c = CString::new(pid_buf).unwrap();
         if write(fd, pid_c.as_ptr() as *const libc::c_void, pid_length) < pid_length as isize {
             return Err(Error::WritePid {
                 errno: errno(),
-                back: Backtrace::generate(),
+                back: Backtrace::new(),
             });
         }
     }
@@ -320,11 +315,16 @@ commands to keep your tags up-to-date.",
     // and it's not there, that's fine: we just proceed with a default configuration values. But if
     // they explicitly named a configuration file, and it's not there, they presumably want to know
     // about that.
-    let cfgpth = matches.value_of("config").context(NoConfigArg {})?;
+    let cfgpth = matches
+        .value_of("config")
+        .ok_or_else(|| Error::NoConfigArg {})?;
     let cfg = match std::fs::read_to_string(cfgpth) {
         // The config file (defaulted or not) existed & we were able to read its contents-- parse
         // em!
-        Ok(text) => config::from_str(&text)?,
+        Ok(text) => config::from_str(&text).map_err(|err| Error::Config {
+            source: err,
+            back: Backtrace::new(),
+        })?,
         // The config file (defaulted or not) either didn't exist, or we were unable to read its
         // contents...
         Err(err) => match (err.kind(), matches.occurrences_of("config")) {
@@ -364,7 +364,10 @@ commands to keep your tags up-to-date.",
             .appender(Appender::builder().build("stdout", Box::new(app)))
             .build(Root::builder().appender("stdout").build(lf))
             .unwrap();
-        log4rs::init_config(lcfg)?;
+        log4rs::init_config(lcfg).map_err(|err| Error::Logging {
+            source: err,
+            back: Backtrace::new(),
+        })?;
     } else {
         // Else, daemonize this process now, before we spin-up the Tokio runtime.
         daemonize()?;
@@ -377,17 +380,19 @@ commands to keep your tags up-to-date.",
             .appender(Appender::builder().build("logfile", Box::new(app)))
             .build(Root::builder().appender("logfile").build(lf))
             .unwrap();
-        log4rs::init_config(lcfg)?;
+        log4rs::init_config(lcfg).map_err(|err| Error::Logging {
+            source: err,
+            back: Backtrace::new(),
+        })?;
     }
 
     // One way or another, we are now the "final" process. Announce ourselves...
     info!("mppopmd {} logging at level {:#?}.", VERSION, lf);
     // spin-up the Tokio runtime...
     let mut rt = tokio::runtime::Runtime::new().unwrap();
-    // and invoke `mpdpopm'. I can't figure out how to get Rust to map from Result<(),
-    // mpdpopm::Error> to Result<(), Error>, so I'm stuck with this ugly match statement:
-    match rt.block_on(mpdpopm(cfg)) {
-        Ok(_) => Ok(()),
-        Err(err) => Err(Error::from(err)),
-    }
+    // and invoke `mpdpopm'.
+    rt.block_on(mpdpopm(cfg)).map_err(|err| Error::MpdPopm {
+        source: err,
+        back: Backtrace::new(),
+    })
 }

@@ -39,7 +39,6 @@ DISTCLEANFILES = $(builddir)/Cargo.toml
 common_sources = clients.rs	\
 		 commands.rs	\
 		 config.rs      \
-		 error_from.rs	\
 		 lib.rs		\
 		 messages.rs    \
 		 playcounts.rs	\

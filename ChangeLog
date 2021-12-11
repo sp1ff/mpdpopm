@@ -1,3 +1,15 @@
+2021-12-16  Michael Herstine  <sp1ff@pobox.com>
+
+	Remove Snafu.
+	After some thought & some research, I decided I want to hand-craft
+	my Errors. Thoughts here:
+
+	<https://www.unwoundstack.com/blog/rust-error-handling.html>
+
+	    - Snafu has been removed
+	    - `cargo test` passes
+	    - `cargo doc` builds cleanly
+
 2021-10-11  Michael Herstine  <sp1ff@pobox.com>
 
 	Address issue #5.

@@ -13,33 +13,34 @@
 // You should have received a copy of the GNU General Public License along with mpdpopm.  If not,
 // see <http://www.gnu.org/licenses/>.
 
-//! # mpd clients and associated utilities.
+//! mpd clients and associated utilities.
 //!
-//! ## Introduction
+//! # Introduction
 //!
-//! This module contains basic types implementing various `mpd' client operations. Cf. the [mpd
-//! protocol](http://www.musicpd.org/doc/protocol/). Since issuing the "idle" command will tie up
-//! the connection, mpd clients often use multiple connections to the server (one to listen for
+//! This module contains basic types implementing various MPD client operations (cf. the [mpd
+//! protocol](http://www.musicpd.org/doc/protocol/)). Since issuing the "idle" command will tie up
+//! the connection, MPD clients often use multiple connections to the server (one to listen for
 //! updates, one or more on which to issue commands). This modules provides two different client
-//! types: [`Client`] for general-purpose use and [`IdleClient`] for long-lived connections
-//! listening for server notifiations.
+//! types: [Client] for general-purpose use and [IdleClient] for long-lived connections listening
+//! for server notifiations.
 //!
-//! There *is* another idiom (used in libmpdel, e.g.): open a single connection & issue an "idle"
-//! command. When you want to issue a command, send a "noidle", then the command, then "idle" again.
-//! This isn't a race condition, as the server will buffer any changes that took place when you
-//! were not idle & send them when you re-issue the "idle" command.
-
-use crate::error_from;
+//! Note that there *is* another idiom (used in [libmpdel](https://github.com/mpdel/libmpdel),
+//! e.g.): open a single connection & issue an "idle" command. When you want to issue a command,
+//! send a "noidle", then the command, then "idle" again.  This isn't a race condition, as the
+//! server will buffer any changes that took place when you were not idle & send them when you
+//! re-issue the "idle" command. This crate however takes the approach of two channels (like
+//! [mpdfav](https://github.com/vincent-petithory/mpdfav)).
 
 use async_trait::async_trait;
-use boolinator::Boolinator;
+use backtrace::Backtrace;
 use log::{debug, info};
 use regex::Regex;
-use snafu::{Backtrace, GenerateBacktrace, OptionExt, Snafu};
 use tokio::{
     net::{TcpStream, ToSocketAddrs, UnixStream},
     prelude::*,
 };
+
+use lazy_static::lazy_static;
 
 use std::{
     collections::HashMap,
@@ -54,176 +55,194 @@ use std::{
 //                                               Error                                            //
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// An enumeration of `mpd' client errors
-#[derive(Debug, Snafu)]
+// The Protocol error, below, gets used a *lot*; anywhere we receive a message from the MPD server
+// that "should" never happen. To help give a bit of context beyond a stack trace, I use this
+// enumeration of "operations"
+/// Enumerated list of MPD operations; used in Error::Protocol to distinguish which operation it was
+/// that elicited the protocol error.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum Operation {
+    Connect,
+    Status,
+    GetSticker,
+    SetSticker,
+    SendToPlaylist,
+    SendMessage,
+    Update,
+    GetStoredPlaylists,
+    RspToUris,
+    GetStickers,
+    GetAllSongs,
+    Add,
+    Idle,
+    GetMessages,
+}
+
+impl std::fmt::Display for Operation {
+    #[allow(unreachable_patterns)] // the _ arm is *currently* unreachable
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Operation::Connect => write!(f, "Connect"),
+            Operation::Status => write!(f, "Status"),
+            Operation::GetSticker => write!(f, "GetSticker"),
+            Operation::SetSticker => write!(f, "SetSticker"),
+            Operation::SendToPlaylist => write!(f, "SendToPlaylist"),
+            Operation::SendMessage => write!(f, "SendMessage"),
+            Operation::Update => write!(f, "Update"),
+            Operation::GetStoredPlaylists => write!(f, "GetStoredPlaylists"),
+            Operation::RspToUris => write!(f, "RspToUris"),
+            Operation::GetStickers => write!(f, "GetStickers"),
+            Operation::GetAllSongs => write!(f, "GetAllSongs"),
+            Operation::Add => write!(f, "Add"),
+            Operation::Idle => write!(f, "Idle"),
+            Operation::GetMessages => write!(f, "GetMessages"),
+            _ => write!(f, "Unknown client operation"),
+        }
+    }
+}
+
+/// An MPD client error
+#[derive(Debug)]
+#[non_exhaustive]
 pub enum Error {
-    #[snafu(display("{}", cause))]
-    Other {
-        #[snafu(source(true))]
-        cause: Box<dyn std::error::Error>,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
+    Protocol {
+        op: Operation,
+        msg: String,
+        back: backtrace::Backtrace,
     },
-    /// Error adding a URI
-    #[snafu(display("Failed to add URI: `{}'", text))]
-    Add {
-        text: String,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
+    Io {
+        source: std::io::Error,
+        back: backtrace::Backtrace,
     },
-    /// Error upon connecting to the mpd server; includes the text returned (if any)
-    #[snafu(display("Failed to connect to the mpd server: `{}'", text))]
-    Connect {
-        text: String,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
+    Encoding {
+        source: std::string::FromUtf8Error,
+        back: backtrace::Backtrace,
     },
-    /// Error in response to find1 or find2
-    #[snafu(display("Search failed: {}", text))]
-    Find {
-        text: String,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    /// Error in response to get_all_songs
-    #[snafu(display("Failed to fetch all song URIs: {}", text))]
-    GetAllSongs {
-        text: String,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    /// Error in respone to "readmessages"
-    #[snafu(display("Failed to read messages: `{}'", text))]
-    GetMessages {
-        text: String,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    /// Error in response to "sticker find"
-    #[snafu(display("Failed to find stickers: `{}'", text))]
-    GetStickers {
-        text: String,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    /// Error in respone to "sticker set"
-    #[snafu(display("Failed to set sticker: `{}'", text))]
-    StickerSet {
-        text: String,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    /// Error in respone to "sticker get"
-    #[snafu(display("Failed to get sticker: `{}'", text))]
-    StickerGet {
-        text: String,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    /// Error in respone to "sendmessage"
-    #[snafu(display("Failed to send message: `{}'", text))]
-    SendMessage {
-        text: String,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    /// Error in respone to "subscribe"
-    #[snafu(display("Failed to subscribe to our subsystems of interest: `{}'", text))]
-    Subscribe {
-        text: String,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    /// Error in respone to "idle"
-    #[snafu(display("Failed to idle: `{}'", text))]
-    Idle {
-        text: String,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    /// Unknown idle subsystem
-    #[snafu(display(
-        "Uknown subsystem `{}'returned in respones to the `idle' command. This is \
-likely a bug; please consider reporting it to sp1ff@pobox.com",
-        text
-    ))]
-    IdleSubsystem {
-        text: String,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    /// Couldn't parse PlayState
-    #[snafu(display("Couldn't parse play state from {}", text))]
-    PlayState {
-        text: String,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    /// Couldn't parse SongId
-    #[snafu(display("Couldn't parse songid from {}", text))]
-    SongId {
-        text: String,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    /// Couldn't parse Elapsed
-    #[snafu(display("Couldn't parse elapsed from {}", text))]
-    Elapsed {
-        text: String,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    /// Couldn't parse song file
-    #[snafu(display("Couldn't parse song file from {}", text))]
-    SongFile {
-        text: String,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    /// Couldn't parse Duration
-    #[snafu(display("Couldn't parse elapsed from {}", text))]
-    Duration {
-        text: String,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    /// Unknown player state
-    #[snafu(display("Unknown player state {}", state))]
-    UnknownState {
-        state: String,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    /// Error in respone to "update"
-    #[snafu(display("Failed to update DB: `{}'", text))]
-    UpdateDB {
-        text: String,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    /// Error in respone to "listplaylists"
-    #[snafu(display("Failed to list stored playlists: `{}'", text))]
-    GetStoredPlaylists {
-        text: String,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
-    },
-    /// Error in converting a sticker to the desired type
-    #[snafu(display("Failed to convert sticker {}: {}", sticker, error))]
-    BadStickerConversion {
+    StickerConversion {
         sticker: String,
-        error: String,
-        #[snafu(backtrace(true))]
-        back: Backtrace,
+        source: Box<dyn std::error::Error + Send + Sync>,
+        back: backtrace::Backtrace,
+    },
+    IdleSubSystem {
+        text: String,
+        back: backtrace::Backtrace,
     },
 }
 
-error_from!(crate::commands::Error);
-error_from!(regex::Error);
-error_from!(std::io::Error);
-error_from!(std::num::ParseFloatError);
-error_from!(std::num::ParseIntError);
-error_from!(std::string::FromUtf8Error);
+impl std::convert::From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error::Io {
+            source: err,
+            back: Backtrace::new(),
+        }
+    }
+}
+
+// Implementation helper: there is a lot of code in this module that reads: "(do thing that returns
+// Option).ok_or_else(|| create an Error::Protocol instance).and then..." This private trait helps
+// make that a bit more succinct. I largely lifted it from Snafu.
+trait OptionExt<T>: Sized {
+    fn context(self, op: Operation, msg: &str) -> std::result::Result<T, Error>;
+}
+
+impl<T> OptionExt<T> for Option<T> {
+    fn context(self, op: Operation, msg: &str) -> std::result::Result<T, Error> {
+        self.ok_or_else(|| Error::Protocol {
+            op: op,
+            msg: String::from(msg), // msg is likely borrowed, sadly
+            back: Backtrace::new(),
+        })
+    }
+}
+
+// This impl lets you change a bool into an Error::Protocol, as well: "(boolean
+// assertion).context(...)"
+impl OptionExt<()> for bool {
+    fn context(self, op: Operation, msg: &str) -> std::result::Result<(), Error> {
+        if self {
+            Ok(())
+        } else {
+            Err(Error::Protocol {
+                op: op,
+                msg: String::from(msg),
+                back: Backtrace::new(),
+            })
+        }
+    }
+}
+
+// Same for Result-s!
+trait ResultExt<T>: Sized {
+    fn context(self, op: Operation, msg: &str) -> std::result::Result<T, Error>;
+}
+
+impl<T, E> ResultExt<T> for std::result::Result<T, E> {
+    fn context(self, op: Operation, msg: &str) -> std::result::Result<T, Error> {
+        self.map_err(|_| Error::Protocol {
+            op: op,
+            msg: String::from(msg),
+            back: Backtrace::new(),
+        })
+    }
+}
+
+impl std::fmt::Display for Error {
+    #[allow(unreachable_patterns)] // the _ arm is *currently* unreachable
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Error::Protocol { op, msg, back: _ } => write!(f, "Protocol error ({}): {}", op, msg),
+            Error::Io { source, back: _ } => write!(f, "I/O error: {}", source),
+            Error::Encoding { source, back: _ } => write!(f, "Encoding error: {}", source),
+            Error::StickerConversion {
+                sticker,
+                source,
+                back: _,
+            } => write!(f, "While converting sticker ``{}'': {}", sticker, source),
+            Error::IdleSubSystem { text, back: _ } => {
+                write!(f, "``{}'' is not a recognized Idle subsystem", text)
+            }
+            _ => write!(f, "Unknown client error"),
+        }
+    }
+}
+
+// Stolen shamelessly from Snafu
+// <https://github.com/shepmaster/snafu/blob/c5255d3ae1e4af1e8b7fd34298f80f9f2399b9fd/src/lib.rs#L991>
+// this trait turns the receiver into an Error trait object.
+pub trait AsErrorSource {
+    /// For maximum effectiveness, this needs to be called as a method
+    /// to benefit from Rust's automatic dereferencing of method
+    /// receivers.
+    fn as_error_source(&self) -> &(dyn std::error::Error + 'static);
+}
+
+impl AsErrorSource for dyn std::error::Error + Send + Sync + 'static {
+    fn as_error_source(&self) -> &(dyn std::error::Error + 'static) {
+        self
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match &self {
+            Error::Io {
+                ref source,
+                back: _,
+            } => Some(source),
+            Error::Encoding {
+                ref source,
+                back: _,
+            } => Some(source),
+            Error::StickerConversion {
+                sticker: _,
+                ref source,
+                back: _,
+            } => Some(source.as_error_source()),
+            _ => None,
+        }
+    }
+}
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -259,6 +278,8 @@ impl CurrentSong {
     }
 }
 
+/// The MPD player itself can be in one of three states: playing, paused or stopped. In the first
+/// two there is a "current" song.
 #[derive(Clone, Debug)]
 pub enum PlayerStatus {
     Play(CurrentSong),
@@ -279,11 +300,13 @@ impl PlayerStatus {
 //                                           Connection                                           //
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// Represents a simple, textual request/response protocol like that employed by [`mpd`].
+/// A trait representing a simple, textual request/response protocol like that
+/// [employed](https://www.musicpd.org/doc/html/protocol.html) by [MPD](https://www.musicpd.org/):
+/// the caller sends a textual command & the server responds with a (perhaps multi-line) textual
+/// response.
 ///
-/// This trait also enables unit testing client implementations. Note that it is async.
-///
-/// [`mpd`]: https://www.musicpd.org/doc/html/protocol.html
+/// This trait also enables unit testing client implementations. Note that it is async-- cf.
+/// [async_trait](https://docs.rs/async-trait/latest/async_trait/).
 #[async_trait]
 pub trait RequestResponse {
     async fn req(&mut self, msg: &str) -> Result<String>;
@@ -340,10 +363,45 @@ pub mod test_mock {
     }
 }
 
-/// mpd connections talk one protocol over either a TCP or a Unix socket
+/// [MPD](https://www.musicpd.org/) connections talk the same
+/// [protocol](https://www.musicpd.org/doc/html/protocol.html) over either a TCP or a Unix socket.
+///
+/// # Examples
+///
+/// Implementations are provided for tokio [UnixStream] and [TcpStream], but [MpdConnection] is a
+/// trait that can work in terms of any asynchronous communications channel (so long as it is also
+/// [Send] and [Unpin] so async executors can pass them between threads.
+///
+/// To create a connection to an `MPD` server over a Unix domain socket:
+///
+/// ```no_run
+/// use std::path::Path;
+/// use tokio::net::UnixStream;
+/// use mpdpopm::clients::MpdConnection;
+/// let local_conn = MpdConnection::<UnixStream>::new(Path::new("/var/run/mpd/mpd.sock"));
+/// ```
+///
+/// In this example, `local_conn` is a Future that will resolve to a Result containing the
+/// [MpdConnection] Unix domain socket implementation once the socket has been established, the MPD
+/// server greets us & the protocol version has been parsed.
+///
+/// or over a TCP socket:
+///
+/// ```no_run
+/// use std::net::SocketAddrV4;
+/// use tokio::net::{TcpStream, ToSocketAddrs};
+/// use mpdpopm::clients::MpdConnection;
+/// let tcp_conn = MpdConnection::<TcpStream>::new("localhost:6600".parse::<SocketAddrV4>().unwrap());
+/// ```
+///
+/// Here, `tcp_conn` is a Future that will resolve to a Result containing the [MpdConnection] TCP
+/// implementation on successful connection to the MPD server (i.e. the connection is established,
+/// the server greets us & we parse the protocol version).
+///
+///
 pub struct MpdConnection<T: AsyncRead + AsyncWrite + Send + Unpin> {
     sock: T,
-    _proto_ver: String,
+    _protocol_ver: String,
 }
 
 /// MpdConnection implements RequestResponse using the usual (async) socket I/O
@@ -395,7 +453,10 @@ where
             }
         }
 
-        Ok(String::from_utf8(buf)?)
+        Ok(String::from_utf8(buf).map_err(|err| Error::Encoding {
+            source: err,
+            back: Backtrace::new(),
+        })?)
     }
 }
 
@@ -406,10 +467,12 @@ where
 {
     let mut buf = Vec::with_capacity(32);
     let _cb = sock.read_buf(&mut buf).await?;
-    let text = String::from_utf8(buf)?;
-    text.starts_with("OK MPD ").as_option().context(Connect {
-        text: text.trim().to_string(),
+    let text = String::from_utf8(buf).map_err(|err| Error::Encoding {
+        source: err,
+        back: Backtrace::new(),
     })?;
+    text.starts_with("OK MPD ")
+        .context(Operation::Connect, text.trim())?;
     info!("Connected {}.", text[7..].trim());
     Ok(text[7..].trim().to_string())
 }
@@ -420,18 +483,19 @@ impl MpdConnection<TcpStream> {
         let proto_ver = parse_connect_rsp(&mut sock).await?;
         Ok(Box::new(MpdConnection::<TcpStream> {
             sock: sock,
-            _proto_ver: proto_ver,
+            _protocol_ver: proto_ver,
         }))
     }
 }
 
 impl MpdConnection<UnixStream> {
+    // NTS: we have to box the return value because a `dyn RequestResponse` isn't Sized.
     pub async fn new<P: AsRef<Path>>(pth: P) -> Result<Box<dyn RequestResponse>> {
         let mut sock = UnixStream::connect(pth).await?;
         let proto_ver = parse_connect_rsp(&mut sock).await?;
         Ok(Box::new(MpdConnection::<UnixStream> {
             sock: sock,
-            _proto_ver: proto_ver,
+            _protocol_ver: proto_ver,
         }))
     }
 }
@@ -457,29 +521,45 @@ pub fn quote(text: &str) -> String {
 //                                               Client                                           //
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// General-purpose [`mpd`] client. "General-purpose" in the sense that we send commands through
-/// it; the interface is narrowly scoped to this program's needs.
+/// General-purpose [mpd](https://www.musicpd.org)
+/// [client](https://www.musicpd.org/doc/html/protocol.html): "general-purpose" in the sense that we
+/// send commands through it; the interface is narrowly scoped to this program's needs.
 ///
-/// Construct instances with a TCP socket, a Unix socket, or any [`RequestResponse`] implementation.
-/// I hate carrying the regexp's around with each instance; ideally they'd be constructed once,
-/// preferrably at compilation time, but at least a program start-up, and re-used, but I can't
-/// figure out how to do that in Rust.
+/// # Introduction
 ///
-/// [`mpd`]: https://www.musicpd.org/doc/html/protocol.html
+/// This is the primary abstraction of the MPD client protocol, written for the convenience of
+/// [mpdpopm](crate). Construct instances with a TCP socket, a Unix socket, or any [RequestResponse]
+/// implementation. You can then carry out assorted operations in the MPD client protocol by
+/// invoking its methods.
+///
+/// ```no_run
+/// use std::path::Path;
+/// use mpdpopm::clients::Client;
+/// let client = Client::open(Path::new("/var/run/mpd.sock"));
+/// ```
+///
+/// `client` is now a [Future](https://doc.rust-lang.org/stable/std/future/trait.Future.html) that
+/// resolves to a [Client] instance talking to `/var/run/mpd.sock`.
+///
+/// ```no_run
+/// use mpdpopm::clients::Client;
+/// let client = Client::connect("localhost:6600");
+/// ```
+///
+/// `client` is now a [Future](https://doc.rust-lang.org/stable/std/future/trait.Future.html) that
+/// resolves to a [Client] instance talking TCP to the MPD server on localhost at port 6600.
 pub struct Client {
     stream: Box<dyn RequestResponse>,
-    re_state: Regex,
-    re_songid: Regex,
-    re_elapsed: Regex,
-    re_file: Regex,
-    re_duration: Regex,
 }
 
-const RE_STATE: &str = r"(?m)^state: (play|pause|stop)$";
-const RE_SONGID: &str = r"(?m)^songid: ([0-9]+)$";
-const RE_ELAPSED: &str = r"(?m)^elapsed: ([.0-9]+)$";
-const RE_FILE: &str = r"(?m)^file: (.*)$";
-const RE_DURATION: &str = r"(?m)^duration: (.*)$";
+// Thanks to <https://stackoverflow.com/questions/35169259/how-to-make-a-compiled-regexp-a-global-variable>
+lazy_static! {
+    static ref RE_STATE: regex::Regex = Regex::new(r"(?m)^state: (play|pause|stop)$").unwrap();
+    static ref RE_SONGID: regex::Regex = Regex::new(r"(?m)^songid: ([0-9]+)$").unwrap();
+    static ref RE_ELAPSED: regex::Regex = Regex::new(r"(?m)^elapsed: ([.0-9]+)$").unwrap();
+    static ref RE_FILE: regex::Regex = Regex::new(r"(?m)^file: (.*)$").unwrap();
+    static ref RE_DURATION: regex::Regex = Regex::new(r"(?m)^duration: (.*)$").unwrap();
+}
 
 impl Client {
     pub async fn connect<A: ToSocketAddrs>(addrs: A) -> Result<Client> {
@@ -491,33 +571,8 @@ impl Client {
     }
 
     pub fn new(stream: Box<dyn RequestResponse>) -> Result<Client> {
-        Ok(Client {
-            stream: stream,
-            re_state: Regex::new(&RE_STATE)?,
-            re_songid: Regex::new(RE_SONGID)?,
-            re_elapsed: Regex::new(RE_ELAPSED)?,
-            re_file: Regex::new(RE_FILE)?,
-            re_duration: Regex::new(RE_DURATION)?,
-        })
+        Ok(Client { stream: stream })
     }
-}
-
-/// Utility function that applies the given regexp to `text`, and returns the first sub-group.
-///
-/// The two context selectors shouldn't be needed, but they don't implement Clone, and I can't
-/// get snafu's `context` to borrow them.
-fn cap<C1, C2>(re: &regex::Regex, text: &str, ctx1: C1, ctx2: C2) -> Result<String>
-where
-    C1: snafu::IntoError<Error, Source = snafu::NoneError>,
-    C2: snafu::IntoError<Error, Source = snafu::NoneError>,
-{
-    Ok(re
-        .captures(text)
-        .context(ctx1)?
-        .get(1)
-        .context(ctx2)?
-        .as_str()
-        .to_string())
 }
 
 impl Client {
@@ -530,71 +585,55 @@ impl Client {
         let text = self.stream.req("status").await?;
 
         // I first thought to avoid the use (and cost) of regular expressions by just doing
-        // sub-string searching on "state: ", but when I realized I needed to only match
-        // at the beginning of a line bailed & just went ahead. This makes for more succinct
-        // code, since I can't count on order, either.
-        let state = cap(
-            &self.re_state,
-            &text,
-            PlayState {
-                text: text.to_string(),
-            },
-            PlayState {
-                text: text.to_string(),
-            },
-        )?;
+        // sub-string searching on "state: ", but when I realized I needed to only match at the
+        // beginning of a line I bailed & just went ahead. This makes for more succinct code, since
+        // I can't count on order, either.
+        let state = RE_STATE
+            .captures(&text)
+            .context(Operation::Status, &text)?
+            .get(1)
+            .context(Operation::Status, &text)?
+            .as_str();
 
-        match state.as_str() {
+        match state {
             "stop" => Ok(PlayerStatus::Stopped),
             "play" | "pause" => {
-                let songid = cap(
-                    &self.re_songid,
-                    &text,
-                    SongId {
-                        text: text.to_string(),
-                    },
-                    SongId {
-                        text: text.to_string(),
-                    },
-                )?
-                .parse::<u64>()?;
-                let elapsed = cap(
-                    &self.re_elapsed,
-                    &text,
-                    Elapsed {
-                        text: text.to_string(),
-                    },
-                    Elapsed {
-                        text: text.to_string(),
-                    },
-                )?
-                .parse::<f64>()?;
+                let songid = RE_SONGID
+                    .captures(&text)
+                    .context(Operation::Status, &text)?
+                    .get(1)
+                    .context(Operation::Status, &text)?
+                    .as_str()
+                    .parse::<u64>()
+                    .context(Operation::Status, &text)?;
+
+                let elapsed = RE_ELAPSED
+                    .captures(&text)
+                    .context(Operation::Status, &text)?
+                    .get(1)
+                    .context(Operation::Status, &text)?
+                    .as_str()
+                    .parse::<f64>()
+                    .context(Operation::Status, &text)?;
 
                 // navigate from `songid'-- don't send a "currentsong" message-- the current song
                 // could have changed
                 let text = self.stream.req(&format!("playlistid {}", songid)).await?;
 
-                let file = cap(
-                    &self.re_file,
-                    &text,
-                    SongFile {
-                        text: text.to_string(),
-                    },
-                    SongFile {
-                        text: text.to_string(),
-                    },
-                )?;
-                let duration = cap(
-                    &self.re_duration,
-                    &text,
-                    Duration {
-                        text: text.to_string(),
-                    },
-                    Duration {
-                        text: text.to_string(),
-                    },
-                )?
-                .parse::<f64>()?;
+                let file = RE_FILE
+                    .captures(&text)
+                    .context(Operation::Status, &text)?
+                    .get(1)
+                    .context(Operation::Status, &text)?
+                    .as_str();
+                let duration = RE_DURATION
+                    .captures(&text)
+                    .context(Operation::Status, &text)?
+                    .get(1)
+                    .context(Operation::Status, &text)?
+                    .as_str()
+                    .parse::<f64>()
+                    .context(Operation::Status, &text)?;
 
                 let curr = CurrentSong::new(songid, PathBuf::from(file), elapsed, duration);
 
@@ -604,21 +643,22 @@ impl Client {
                     Ok(PlayerStatus::Pause(curr))
                 }
             }
-            _ => Err(Error::UnknownState {
-                state: state.to_string(),
-                back: Backtrace::generate(),
+            _ => Err(Error::Protocol {
+                op: Operation::Status,
+                msg: state.to_string(),
+                back: Backtrace::new(),
             }),
         }
     }
 
-    /// Retrieve a song sticker by name, as a string
+    /// Retrieve a song sticker by name
     pub async fn get_sticker<T: FromStr>(
         &mut self,
         file: &str,
         sticker_name: &str,
     ) -> Result<Option<T>>
     where
-        <T as FromStr>::Err: std::error::Error,
+        <T as FromStr>::Err: std::error::Error + Sync + Send + 'static,
     {
         let msg = format!("sticker get song \"{}\" \"{}\"", file, sticker_name);
         let text = self.stream.req(&msg).await?;
@@ -629,27 +669,22 @@ impl Client {
             let s = text[prefix.len()..]
                 .split('\n')
                 .next()
-                .context(StickerGet { text: text.clone() })?;
-            let r = T::from_str(s);
-            match r {
-                Ok(t) => Ok(Some(t)),
-                Err(e) => Err(Error::BadStickerConversion {
+                .context(Operation::GetSticker, &msg)?;
+            Ok(Some(T::from_str(s).map_err(|e| {
+                Error::StickerConversion {
                     sticker: String::from(sticker_name),
-                    error: format!("{}", e),
-                    back: Backtrace::generate(),
-                }),
-            }
-        } else if text.starts_with("ACK ") && text.ends_with("no such sticker\n") {
-            Ok(None)
+                    source: Box::<dyn std::error::Error + Sync + Send>::from(e),
+                    back: Backtrace::new(),
+                }
+            })?))
         } else {
-            Err(Error::StickerGet {
-                text: text.to_string(),
-                back: Backtrace::generate(),
-            })
+            (text.starts_with("ACK ") && text.ends_with("no such sticker\n"))
+                .context(Operation::GetSticker, &msg)?;
+            Ok(None)
         }
     }
 
-    /// Set a song sticker by name, as text
+    /// Set a song sticker by name
     pub async fn set_sticker<T: std::fmt::Display>(
         &mut self,
         file: &str,
@@ -663,10 +698,7 @@ impl Client {
         let text = self.stream.req(&msg).await?;
         debug!("Sent `{}'; got `{}'", &msg, &text);
 
-        text.starts_with("OK").as_option().context(StickerSet {
-            text: text.to_string(),
-        })?;
-        Ok(())
+        text.starts_with("OK").context(Operation::SetSticker, &msg)
     }
 
     /// Send a file to a playlist
@@ -675,10 +707,8 @@ impl Client {
         let text = self.stream.req(&msg).await?;
         debug!("Sent `{}'; got `{}'.", &msg, &text);
 
-        text.starts_with("OK").as_option().context(StickerSet {
-            text: text.to_string(),
-        })?;
-        Ok(())
+        text.starts_with("OK")
+            .context(Operation::SendToPlaylist, &msg)
     }
 
     /// Send an arbitrary message
@@ -687,10 +717,8 @@ impl Client {
         let text = self.stream.req(&msg).await?;
         debug!("Sent `{}'; got `{}'.", &msg, &text);
 
-        text.starts_with("OK").as_option().context(SendMessage {
-            text: text.to_string(),
-        })?;
-        Ok(())
+        text.starts_with("OK")
+            .context(Operation::SendMessage, &text)
     }
 
     /// Update a URI
@@ -707,17 +735,11 @@ impl Client {
         // on failure.
 
         let prefix = "updating_db: ";
-        if text.starts_with(prefix) {
-            // Seems prolix to me
-            Ok(text[prefix.len()..].split('\n').collect::<Vec<&str>>()[0]
-                .to_string()
-                .parse::<u64>()?)
-        } else {
-            Err(Error::UpdateDB {
-                text: text.to_string(),
-                back: Backtrace::generate(),
-            })
-        }
+        text.starts_with(prefix).context(Operation::Update, &text)?;
+        text[prefix.len()..].split('\n').collect::<Vec<&str>>()[0]
+            .to_string()
+            .parse::<u64>()
+            .context(Operation::Update, &text)
     }
 
     /// Get the list of stored playlists
@@ -737,9 +759,10 @@ impl Client {
         //
         // ACK...
         if text.starts_with("ACK") {
-            Err(Error::GetStoredPlaylists {
-                text: text.to_string(),
-                back: Backtrace::generate(),
+            Err(Error::Protocol {
+                op: Operation::GetStoredPlaylists,
+                msg: text,
+                back: Backtrace::new(),
             })
         } else {
             Ok(text
@@ -770,9 +793,10 @@ impl Client {
         //
         // ACK...
         if text.starts_with("ACK") {
-            Err(Error::Find {
-                text: text.to_string(),
-                back: Backtrace::generate(),
+            Err(Error::Protocol {
+                op: Operation::RspToUris,
+                msg: String::from(text),
+                back: Backtrace::new(),
             })
         } else {
             Ok(text
@@ -849,19 +873,21 @@ impl Client {
         // ACK ...
 
         if text.starts_with("ACK") {
-            Err(Error::GetStickers {
-                text: text.to_string(),
-                back: Backtrace::generate(),
+            Err(Error::Protocol {
+                op: Operation::GetStickers,
+                msg: text,
+                back: Backtrace::new(),
             })
         } else {
             let mut m = HashMap::new();
             let mut lines = text.lines();
             loop {
-                let file = lines.next().context(GetStickers { text: text.clone() })?;
+                let file = lines.next().context(Operation::GetStickers, &text)?;
                 if "OK" == file {
                     break;
                 }
-                let val = lines.next().context(GetStickers { text: text.clone() })?;
+                let val = lines.next().context(Operation::GetStickers, &text)?;
+
                 m.insert(
                     String::from(&file[6..]),
                     String::from(&val[10 + sticker.len()..]),
@@ -891,9 +917,10 @@ impl Client {
         //
         // or "ACK..."
         if text.starts_with("ACK") {
-            Err(Error::GetAllSongs {
-                text: text.to_string(),
-                back: Backtrace::generate(),
+            Err(Error::Protocol {
+                op: Operation::GetAllSongs,
+                msg: text,
+                back: Backtrace::new(),
             })
         } else {
             Ok(text
@@ -914,9 +941,7 @@ impl Client {
         let text = self.stream.req(&msg).await?;
         debug!("Sent `{}'; got `{}'.", &msg, &text);
 
-        text.starts_with("OK").as_option().context(Add {
-            text: text.to_string(),
-        })?;
+        text.starts_with("OK").context(Operation::Add, &text)?;
         Ok(())
     }
 }
@@ -1161,6 +1186,7 @@ OK
 //                                           IdleClient                                           //
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#[non_exhaustive]
 #[derive(Debug, PartialEq, Eq)]
 pub enum IdleSubSystem {
     Player,
@@ -1176,9 +1202,9 @@ impl TryFrom<&str> for IdleSubSystem {
         } else if x == "message" {
             Ok(IdleSubSystem::Message)
         } else {
-            Err(Error::IdleSubsystem {
+            Err(Error::IdleSubSystem {
                 text: String::from(text),
-                back: Backtrace::generate(),
+                back: Backtrace::new(),
             })
         }
     }
@@ -1193,16 +1219,39 @@ impl fmt::Display for IdleSubSystem {
     }
 }
 
-/// mpdpopm client for "idle" connections.
+/// [MPD](https://www.musicpd.org) client for "idle" connections.
 ///
-/// I should probably make this generic over all types implementing AsyncRead & AsyncWrite.
+/// # Introduction
+///
+/// This is an MPD client designed to "idle": it opens a long-lived connection to the MPD server and
+/// waits for MPD to respond with a message indicating that there's been a change to a subsystem of
+/// interest. At present, there are only two subsystems in which [mpdpopm](crate) is interested: the player
+/// & messages (cf. [IdleSubSystem]).
+///
+/// ```no_run
+/// use std::path::Path;
+/// use tokio::runtime::Runtime;
+/// use mpdpopm::clients::IdleClient;
+///
+/// let mut rt = Runtime::new().unwrap();
+/// rt.block_on( async {
+///     let mut client = IdleClient::open(Path::new("/var/run/mpd.sock")).await.unwrap();
+///     client.subscribe("player").await.unwrap();
+///     client.idle().await.unwrap();
+///     // Arrives here when the player's state changes
+/// })
+/// ```
+///
+/// `client` is now a [Future](https://doc.rust-lang.org/stable/std/future/trait.Future.html) that
+/// resolves to an [IdleClient] instance talking to `/var/run/mpd.sock`.
+///
 pub struct IdleClient {
     conn: Box<dyn RequestResponse>,
 }
 
 impl IdleClient {
-    /// Create a new [`mpdpopm::client::IdleClient`][`IdleClient`] instance from something that
-    /// implements [`ToSocketAddrs`][`tokio::net::ToSocketAddrs`]
+    /// Create a new [mpdpopm::client::IdleClient][IdleClient] instance from something that
+    /// implements [ToSocketAddrs][tokio::net::ToSocketAddrs]
     pub async fn connect<A: ToSocketAddrs>(addr: A) -> Result<IdleClient> {
         Self::new(MpdConnection::<TcpStream>::new(addr).await?)
     }
@@ -1219,9 +1268,7 @@ impl IdleClient {
     pub async fn subscribe(&mut self, chan: &str) -> Result<()> {
         let text = self.conn.req(&format!("subscribe {}", chan)).await?;
         debug!("Sent subscribe message for {}; got `{}'.", chan, text);
-        text.starts_with("OK").as_option().context(Subscribe {
-            text: String::from(text),
-        })?;
+        text.starts_with("OK").context(Operation::Connect, &text)?;
         debug!("Subscribed to {}.", chan);
         Ok(())
     }
@@ -1243,17 +1290,13 @@ impl IdleClient {
         //
         // We remain subscribed, but we need to send a new idle message.
 
-        text.starts_with("changed: ").as_option().context(Idle {
-            text: String::from(&text),
-        })?;
-        let idx = text.find('\n').context(Idle {
-            text: String::from(&text),
-        })?;
+        text.starts_with("changed: ")
+            .context(Operation::Idle, &text)?;
+        let idx = text.find('\n').context(Operation::Idle, &text)?;
+
         let result = IdleSubSystem::try_from(&text[9..idx])?;
         let text = text[idx + 1..].to_string();
-        text.starts_with("OK").as_option().context(Idle {
-            text: String::from(text),
-        })?;
+        text.starts_with("OK").context(Operation::Idle, &text)?;
 
         Ok(result)
     }
@@ -1287,10 +1330,7 @@ impl IdleClient {
             match state {
                 State::Init => {
                     line.starts_with("channel: ")
-                        .as_option()
-                        .context(GetMessages {
-                            text: String::from(line),
-                        })?;
+                        .context(Operation::GetMessages, &line)?;
                     chan = String::from(&line[9..]);
                     state = State::Running;
                 }
@@ -1315,17 +1355,19 @@ impl IdleClient {
                         }
                         state = State::Finished;
                     } else {
-                        return Err(Error::GetMessages {
-                            text: String::from(line),
-                            back: Backtrace::generate(),
+                        return Err(Error::Protocol {
+                            op: Operation::GetMessages,
+                            msg: text,
+                            back: Backtrace::new(),
                         });
                     }
                 }
                 State::Finished => {
                     // Should never be here!
-                    return Err(Error::GetMessages {
-                        text: String::from(line),
-                        back: Backtrace::generate(),
+                    return Err(Error::Protocol {
+                        op: Operation::GetMessages,
+                        msg: String::from(line),
+                        back: Backtrace::new(),
                     });
                 }
             }

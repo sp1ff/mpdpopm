@@ -17,20 +17,19 @@
 //!
 //! # Introduction
 //!
-//! Play counts & last played timestamps are maintained so long as [`PlayState::update`] is called
+//! Play counts & last played timestamps are maintained so long as [PlayState::update] is called
 //! regularly (every few seconds, say). For purposes of library maintenance, however, they can be
 //! set explicitly:
 //!
-//! - setpc PLAYCOUNT( TRACK)?
-//! - setlp LASTPLAYED( TRACK)?
+//! - `setpc PLAYCOUNT( TRACK)?`
+//! - `setlp LASTPLAYED( TRACK)?`
 //!
 
 use crate::clients::{Client, PlayerStatus};
 use crate::commands::{spawn, TaggedCommandFuture};
-use crate::error_from;
 
+use backtrace::Backtrace;
 use log::{debug, info};
-use snafu::{Backtrace, GenerateBacktrace, OptionExt, Snafu};
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -40,26 +39,61 @@ use std::time::SystemTime;
 //                                           Error type                                           //
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Snafu)]
+#[derive(Debug)]
 pub enum Error {
-    #[snafu(display("{}", cause))]
-    Other {
-        #[snafu(source(true))]
-        cause: Box<dyn std::error::Error>,
-        #[snafu(backtrace(true))]
+    PlayerStopped,
+    BadPath {
+        pth: PathBuf,
+    },
+    SystemTime {
+        source: std::time::SystemTimeError,
         back: Backtrace,
     },
-    #[snafu(display("The current track can't be modified when the player is stopped"))]
-    PlayerStopped,
-    #[snafu(display("The path `{}' cannot be converted to a UTF-8 string", pth.display()))]
-    BadPath { pth: PathBuf },
+    Client {
+        source: crate::clients::Error,
+        back: Backtrace,
+    },
+    Command {
+        source: crate::commands::Error,
+        back: Backtrace,
+    },
 }
 
-error_from!(crate::clients::Error);
-error_from!(crate::commands::Error);
-error_from!(std::num::ParseFloatError);
-error_from!(std::num::ParseIntError);
-error_from!(std::time::SystemTimeError);
+impl std::fmt::Display for Error {
+    #[allow(unreachable_patterns)] // the _ arm is *currently* unreachable
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Error::PlayerStopped => write!(f, "The MPD player is stopped"),
+            Error::BadPath { pth } => write!(f, "Bad path: {:?}", pth),
+            Error::SystemTime { source, back: _ } => {
+                write!(f, "Couldn't get system time: {}", source)
+            }
+            Error::Client { source, back: _ } => write!(f, "Client error: {}", source),
+            Error::Command { source, back: _ } => write!(f, "Command error: {}", source),
+            _ => write!(f, "Unknown playcount error"),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match &self {
+            Error::SystemTime {
+                ref source,
+                back: _,
+            } => Some(source),
+            Error::Client {
+                ref source,
+                back: _,
+            } => Some(source),
+            Error::Command {
+                ref source,
+                back: _,
+            } => Some(source),
+            _ => None,
+        }
+    }
+}
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -73,7 +107,13 @@ pub async fn get_play_count(
     sticker: &str,
     file: &str,
 ) -> Result<Option<usize>> {
-    match client.get_sticker::<usize>(file, sticker).await? {
+    match client
+        .get_sticker::<usize>(file, sticker)
+        .await
+        .map_err(|err| Error::Client {
+            source: err,
+            back: Backtrace::new(),
+        })? {
         Some(n) => Ok(Some(n)),
         None => Ok(None),
     }
@@ -91,7 +131,11 @@ pub async fn set_play_count<I: Iterator<Item = String>>(
 ) -> Result<Option<std::pin::Pin<std::boxed::Box<TaggedCommandFuture>>>> {
     client
         .set_sticker(file, sticker, &format!("{}", play_count))
-        .await?;
+        .await
+        .map_err(|err| Error::Client {
+            source: err,
+            back: Backtrace::new(),
+        })?;
 
     if cmd.len() == 0 {
         return Ok(None);
@@ -103,7 +147,7 @@ pub async fn set_play_count<I: Iterator<Item = String>>(
         "full-file".to_string(),
         full_path
             .to_str()
-            .context(BadPath {
+            .ok_or_else(|| Error::BadPath {
                 pth: full_path.clone(),
             })?
             .to_string(),
@@ -111,7 +155,10 @@ pub async fn set_play_count<I: Iterator<Item = String>>(
     params.insert("playcount".to_string(), format!("{}", play_count));
 
     Ok(Some(TaggedCommandFuture::pin(
-        spawn(cmd, args, &params)?,
+        spawn(cmd, args, &params).map_err(|err| Error::Command {
+            source: err,
+            back: Backtrace::new(),
+        })?,
         None, /* No need to update the DB */
     )))
 }
@@ -122,7 +169,13 @@ pub async fn get_last_played(
     sticker: &str,
     file: &str,
 ) -> Result<Option<u64>> {
-    Ok(client.get_sticker::<u64>(file, sticker).await?)
+    Ok(client
+        .get_sticker::<u64>(file, sticker)
+        .await
+        .map_err(|err| Error::Client {
+            source: err,
+            back: Backtrace::new(),
+        })?)
 }
 
 /// Set the last played for a track
@@ -134,7 +187,11 @@ pub async fn set_last_played(
 ) -> Result<()> {
     client
         .set_sticker(file, sticker, &format!("{}", last_played))
-        .await?;
+        .await
+        .map_err(|err| Error::Client {
+            source: err,
+            back: Backtrace::new(),
+        })?;
     Ok(())
 }
 
@@ -219,7 +276,10 @@ impl PlayState {
         playcount_cmd_args: &mut I,
         music_dir: &str,
     ) -> Result<Option<std::pin::Pin<std::boxed::Box<TaggedCommandFuture>>>> {
-        let new_stat = client.status().await?;
+        let new_stat = client.status().await.map_err(|err| Error::Client {
+            source: err,
+            back: Backtrace::new(),
+        })?;
 
         match (&self.last_server_stat, &new_stat) {
             (PlayerStatus::Play(last), PlayerStatus::Play(curr))
@@ -258,7 +318,7 @@ impl PlayState {
                         curr.songid,
                         curr.elapsed / curr.duration
                     );
-                    let file = curr.file.to_str().context(BadPath {
+                    let file = curr.file.to_str().ok_or_else(|| Error::BadPath {
                         pth: PathBuf::from(curr.file.clone()),
                     })?;
                     let curr_pc =
@@ -272,7 +332,11 @@ impl PlayState {
                         &self.lastplayed_sticker,
                         file,
                         SystemTime::now()
-                            .duration_since(SystemTime::UNIX_EPOCH)?
+                            .duration_since(SystemTime::UNIX_EPOCH)
+                            .map_err(|err| Error::SystemTime {
+                                source: err,
+                                back: Backtrace::new(),
+                            })?
                             .as_secs(),
                     )
                     .await?;

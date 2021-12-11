@@ -1,112 +1,121 @@
 mpdpopm News -- history of user-visible changes           -*- outline -*-
 
-* 0.3.0 build
+* 0.3 builds
 
-** Bugfixes
+** 0.3.1 build
 
-*** Address Issue #5: Cannot connect to mpd unix socket
-* 0.2.3 build
+No user-visible changes; strictly a hygiene build (re-vamped error-handling throughout).
+** 0.3.0 build
 
-** User-visible changes
+*** Bugfixes
 
-*** broke-up the README
+**** Address Issue #5: Cannot connect to mpd unix socket
+* 0.2 builds
+
+** 0.2.3 build
+
+*** User-visible changes
+
+**** broke-up the README
 
 Broke-up README.org into a much shorter version focused on installing mpdpopm and a full-fledged user-manual.
 
-** Bug-fixes
+*** Bug-fixes
 
-*** quoting
+**** quoting
 
 Fixed a number of bugs relating to quoting filters.
 
-* 0.2.2 build
+** 0.2.2 build
 
-** User-visible changes
+*** User-visible changes
 
-*** `searchadd' command fully working
+**** `searchadd' command fully working
 
-*** `mppopm' now has findadd & searchadd commands
-* 0.2.1 build
+**** `mppopm' now has findadd & searchadd commands
+** 0.2.1 build
 
-** User-visible changes
+*** User-visible changes
 
-*** `findadd' command fully working
-* 0.2.0 build
+**** `findadd' command fully working
+** 0.2.0 build
 
-** User-visible changes
+*** User-visible changes
 
-*** `findadd' command
+**** `findadd' command
 
 mpdpopm now supports a `findadd' command; just like the MPD command by the same name, but this implementation includes terms for information managed by mpdpopm (so you can search for tracks with a rating > 3 stars, for instance).
 
-* 0.1.15 build
+* 0.1 builds
 
-** User-visible changes
+** 0.1.15 build
 
-*** Include sample configuration & systemd unit files
+*** User-visible changes
 
-*** Begin providing an Arch package
+**** Include sample configuration & systemd unit files
 
-* 0.1.14 build
+**** Begin providing an Arch package
 
-** User-visible changes
+** 0.1.14 build
 
-*** Complete re-write of the README
+*** User-visible changes
 
-*** Releases will now contain pre-built binaries & a Debian binary package
-* 0.1.13 build
+**** Complete re-write of the README
 
-** Bugfixes
+**** Releases will now contain pre-built binaries & a Debian binary package
+** 0.1.13 build
 
-*** Issue 1: `get_messages` fails on repeated channels
-* 0.1.12 build
+*** Bugfixes
+
+**** Issue 1: `get_messages` fails on repeated channels
+** 0.1.12 build
 
 Minor changes preparatory to publication on crates.io; no user-facing changes.
-* 0.1.11 build
+** 0.1.11 build
 
-** User-visible changes
+*** User-visible changes
 
   - scribbu feature replaced with a generalized command facility
-* 0.1.10 build
+** 0.1.10 build
 
-** User-visible changes
+*** User-visible changes
 
   - 'mppopm set-genre' now takes free-form text rather than a numeric genre
-* 0.1.9 build
+** 0.1.9 build
 
-** User-visible changes
+*** User-visible changes
 
   - removed the "sent-to-playlist" command
-** Bugfixes
+*** Bugfixes
 
   - fixed: failure in message processing caused the daemon to exit
-* 0.1.8 build: daemon support
+** 0.1.8 build: daemon support
 
   - added support for running `mppopmd' as a daemon
 
-* 0.1.7 build: re-factoring & bug fixes
+** 0.1.7 build: re-factoring & bug fixes
 
   - added support for commands to signal the need for an update on completion
   - fixed bug in in the "update" command processing
   
-* 0.1.6 build: new server-side commands
+** 0.1.6 build: new server-side commands
 
 Gated behind the "scribbu" feature flag
 
   - setgenre
   - setxtag
 
-* 0.1.5 build: new server-side commands
+** 0.1.5 build: new server-side commands
 
   - setpc
   - setlp
   - send
 
-* 0.1.4 build: client features, daemon bug fixes
+** 0.1.4 build: client features, daemon bug fixes
 
-* 0.1.3 build: complete re-factor
+** 0.1.3 build: complete re-factor
 
   - split the code into separate daemon & cli
 
-* 0.1.2 build: No news, yet!
+** 0.1.2 build: No news, yet!
 

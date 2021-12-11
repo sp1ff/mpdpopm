@@ -13,23 +13,25 @@
 // You should have received a copy of the GNU General Public License along with mpdpopm.  If not,
 // see <http://www.gnu.org/licenses/>.
 
-//! commands -- running commands on the server
+//! Running commands on the server
 //!
 //! # Introduction
 //!
 //! [mpdpopm](crate) allows for running arbitrary programs on the server in response to server
 //! events or external commands (to keep ID3 tags up-to-date when a song is rated, for
-//! instance). This may seem like a vulnerability if your [mpd] server is listening on a socket, but
+//! instance). This may seem like a vulnerability if your [MPD] server is listening on a socket, but
 //! it's not like callers can execute arbitrary code: certain events can trigger commands that you,
-//! the [mpd] server owner have configured.
+//! the [MPD] server owner have configured.
 //!
-//! [mpd]: https://www.musicpd.org/ "MPD"
+//! [MPD]: https://www.musicpd.org/ "MPD"
 //!
 //! # The Generalized Command Framework
 //!
-//! In addition to the fixed commands, [mpdpopm](https://github.com/sp1ff/mpdpopm) provides a
-//! generalized command framework by which the admin can map arbitrary commands to code execution on
-//! the server-side. A generalized command can be described as:
+//! In addition to fixed commands (i.e. commands that are run in response to particular events, like
+//! rating a song, or completing a track), [mpdpopm](https://github.com/sp1ff/mpdpopm) provides a
+//! generalized command framework by which you can map arbitrary messages sent to the
+//! [mpdpopm](crate) channel to code execution on the server side. A generalized command can be
+//! described as:
 //!
 //! 1. the command name: commands shall be named according to the regular expression:
 //!    [a-zA-Z][-a-zA-Z0-9]+
@@ -37,9 +39,9 @@
 //! 2. command parameters: a command may take parameters; the parameters are defined by an array
 //!    of zero or more instances of:
 //!
-//!    - parameter name: parameter names shall match [a-zA-Z][-a-zA-Z0-9]+
+//!    - parameter name: parameter names shall match the regex: [a-zA-Z][-a-zA-Z0-9]+
 //!
-//!    - parameter type: parameters are typed:
+//!    - parameter type: parameters may be a:
 //!
 //!      - general/string
 //!
@@ -55,24 +57,26 @@
 //!
 //!    - replacement parameters
 //!
-//!     - %1, %2, %3... will be replaced with the parameter in the corresponding position above
+//!      - %1, %2, %3... will be replaced with the parameter in the corresponding position above
 //!
-//!     - %full-file will expand to the absolute path to the song named by the track argument,
-//!       if present; if this parameter is used, and the track is *not* provided in the
-//!       command arguments, it is an error
+//!      - %full-file will expand to the absolute path to the song named by the track argument, if
+//!      present; if this parameter is used, and the track is *not* provided in the command
+//!      arguments, it is an error
 //!
-//!     - %rating, %play-count & %last-played will expand to the value of the corresponding
-//!       sticker, if present. If any of these are used, and the track is *not* provided in
-//!       the command arguments, it is an error. If the corresponding sticker is not present in
-//!       the sticker database, default values of 0, 0, and Jan. 1 1970 (i.e. Unix epoch) will
-//!       be provided instead.
+//!      - %rating, %play-count & %last-played will expand to the value of the corresponding
+//!      sticker, if present. If any of these are used, and the track is *not* provided in the
+//!      command arguments, it is an error. If the corresponding sticker is not present in the
+//!      sticker database, default values of 0, 0, and Jan. 1 1970 (i.e. Unix epoch) will be
+//!      provided instead.
 //!
 //! ## Quoting
 //!
-//! [mpd](https://www.musicpd.org/) breaks up commands into their constituent tokens on the basis
+//! [MPD](https://www.musicpd.org/) breaks up commands into their constituent tokens on the basis
 //! of whitespace:
 //!
+//! ```text
 //! token := [a-zA-Z0-09~!@#$%^&*()-=_+[]{}\|;:<>,./?]+ | "([ \t'a-zA-Z0-09~!@#$%^&*()-=_+[]{}|;:<>,./?]|\"|\\)"
+//! ```
 //!
 //! In other words, a token is any group of ASCII, non-whitespace characters except for ' & " (even
 //! \). In order to include space, tab, ' or " the token must be enclosed in double quotes at which
@@ -85,19 +89,25 @@
 //! illustrate. Suppose the command is named myfind and we wish to pass an argument which contains
 //! both ' characters & spaces:
 //!
-//!    myfind (Artist == 'foo' and rating > '***')
-//!    ^^^^^^ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-//!    cmd    argument
+//! ```text
+//! myfind (Artist == 'foo' and rating > '***')
+//! ^^^^^^ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//! cmd    argument
+//! ```
 //!
 //! Since the argument contains spaces _and_ '-s we'll need to enclose it in double quotes (at
 //! which point the ' characters become permissible):
 //!
-//!    myfind "(Artist == 'foo' and rating > '***')"
+//! ```text
+//! myfind "(Artist == 'foo' and rating > '***')"
+//! ```
 //!
 //! Since this entire command will itself be a single token in the "sendmessage" command, we
 //! need to quote it in its entirety on the client side:
 //!
-//!    "myfind \"(Artist == 'foo' and rating > '***')\""
+//! ```text
+//! "myfind \"(Artist == 'foo' and rating > '***')\""
+//! ```
 //!
 //! (Enclose the entire command in double-quotes, then backslash-escape any " or \ characters
 //! therein).
@@ -109,10 +119,10 @@
 
 use crate::clients::PlayerStatus;
 
+use backtrace::Backtrace;
 use futures::future::Future;
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
-use snafu::{OptionExt, Snafu};
 use tokio::process::Command;
 
 use std::collections::HashMap;
@@ -123,28 +133,62 @@ use std::path::PathBuf;
 //                                       module Error type                                        //
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Snafu)]
+/// An mpdpopm command error
+#[derive(Debug)]
+#[non_exhaustive]
 pub enum Error {
-    #[snafu(display("The path `{}' cannot be converted to a UTF-8 string", pth.display()))]
-    BadPath { pth: PathBuf },
-    #[snafu(display("Parameter {} is a duplciate track argument", index))]
-    DuplicateTrackArgument { index: usize },
-    #[snafu(display("Missing parameter {} & it it is not marked as default", index))]
-    MissingParameter { index: usize },
-    #[snafu(display("The current track was requested, but there is not current track"))]
+    BadPath {
+        pth: PathBuf,
+        back: backtrace::Backtrace,
+    },
+    DuplicateTrackArgument {
+        index: usize,
+        back: backtrace::Backtrace,
+    },
+    MissingParameter {
+        index: usize,
+        back: backtrace::Backtrace,
+    },
     NoCurrentTrack,
-    #[snafu(display(
-        "This command is marked as needing to update the affected track only, but \"
-there is no track given"
-    ))]
     NoTrackToUpdate,
-    #[snafu(display(
-        "The template string `{}' has a trailing '%' character, which is illegal.",
-        template
-    ))]
-    TrailingPercent { template: String },
-    #[snafu(display("Unknown replacement parameter `{}'", param))]
-    UnknownParameter { param: String },
+    TrailingPercent {
+        template: String,
+        back: backtrace::Backtrace,
+    },
+    UnknownParameter {
+        param: String,
+        back: backtrace::Backtrace,
+    },
+}
+
+impl std::fmt::Display for Error {
+    #[allow(unreachable_patterns)] // the _ arm is *currently* unreachable
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Error::BadPath { pth, back: _ } => write!(f, "Bad path: {:?}", pth),
+            Error::DuplicateTrackArgument { index, back: _ } => {
+                write!(f, "Duplicate track argument at index {}", index)
+            }
+            Error::MissingParameter { index, back: _ } => {
+                write!(f, "Missing actual parameter at index {}", index)
+            }
+            Error::NoCurrentTrack => write!(f, "No current track"),
+            Error::NoTrackToUpdate => write!(f, "No track to update"),
+            Error::TrailingPercent { template, back: _ } => {
+                write!(f, "Trailing percent in template ``{}''", template)
+            }
+            Error::UnknownParameter { param, back: _ } => {
+                write!(f, "Unknown parameter ``{}''", param)
+            }
+            _ => write!(f, "Unknown commands error"),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Option::None
+    }
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -168,8 +212,9 @@ pub fn process_replacements(templ: &str, params: &HashMap<String, String>) -> Re
         if a != '%' {
             out.push(a);
         } else {
-            let b = c.peek().context(TrailingPercent {
+            let b = c.peek().ok_or_else(|| Error::TrailingPercent {
                 template: String::from(templ),
+                back: Backtrace::new(),
             })?;
             if *b == '%' {
                 c.next();
@@ -187,8 +232,9 @@ pub fn process_replacements(templ: &str, params: &HashMap<String, String>) -> Re
                         }
                     })
                     .collect();
-                out.push_str(params.get(&t).context(UnknownParameter {
+                out.push_str(params.get(&t).ok_or_else(|| Error::UnknownParameter {
                     param: String::from(t),
+                    back: Backtrace::new(),
                 })?);
                 match terminal {
                     Some(x) => out.push(x),
@@ -409,7 +455,10 @@ impl GeneralizedCommand {
                 cfp.push(&curr.file);
                 let cfs = cfp
                     .to_str()
-                    .context(BadPath { pth: cfp.clone() })?
+                    .ok_or_else(|| Error::BadPath {
+                        pth: cfp.clone(),
+                        back: Backtrace::new(),
+                    })?
                     .to_string();
                 params.insert("current-file".to_string(), cfs.clone());
                 debug!("current-file is: {}", cfs);
@@ -432,18 +481,27 @@ impl GeneralizedCommand {
                     // Slightly more complicated, replacement parameter %i will be "", but only
                     // if this formal parameter is allowed to be defaulted.
                     if i < self.default_after {
-                        return Err(Error::MissingParameter { index: i });
+                        return Err(Error::MissingParameter {
+                            index: i,
+                            back: Backtrace::new(),
+                        });
                     }
                     debug!("%{} is: nil", i);
                     params.insert(format!("{}", i), String::from(""));
                 }
                 (FormalParameter::Track, Some(token)) => {
                     if saw_track {
-                        return Err(Error::DuplicateTrackArgument { index: i });
+                        return Err(Error::DuplicateTrackArgument {
+                            index: i,
+                            back: Backtrace::new(),
+                        });
                     }
                     let mut ffp = self.music_dir.clone();
                     ffp.push(PathBuf::from(token));
-                    let ffs = ffp.to_str().context(BadPath { pth: ffp.clone() })?;
+                    let ffs = ffp.to_str().ok_or_else(|| Error::BadPath {
+                        pth: ffp.clone(),
+                        back: Backtrace::new(),
+                    })?;
                     params.insert(format!("{}", i), ffs.to_string());
                     params.insert("full-file".to_string(), ffs.to_string());
                     full_file = Some(ffs.to_string());
@@ -451,10 +509,16 @@ impl GeneralizedCommand {
                 }
                 (FormalParameter::Track, None) => {
                     if i < self.default_after {
-                        return Err(Error::MissingParameter { index: i });
+                        return Err(Error::MissingParameter {
+                            index: i,
+                            back: Backtrace::new(),
+                        });
                     }
                     if saw_track {
-                        return Err(Error::DuplicateTrackArgument { index: i });
+                        return Err(Error::DuplicateTrackArgument {
+                            index: i,
+                            back: Backtrace::new(),
+                        });
                     }
                     match &current_file {
                         Some(cf) => {

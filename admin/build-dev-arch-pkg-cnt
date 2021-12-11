@@ -8,4 +8,9 @@ cp -v /PKGBUILD /tmp
 cd /tmp
 makepkg -g >> PKGBUILD
 makepkg
+sudo pacman --noconfirm -Uv mpdpopm-${version}-1-x86_64.pkg.tar.zst
+mppopm --version
+mppopm --help
+test -f /usr/local/share/info/mpdpopm.info.gz
+sudo pacman --noconfirm -R mpdpopm
 cp -v mpdpopm-${version}-1-x86_64.pkg.tar.zst /mpdpopm
