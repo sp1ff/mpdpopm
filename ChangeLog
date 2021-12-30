@@ -1,4 +1,8 @@
-2021-12-16  Michael Herstine  <sp1ff@pobox.com>
+2021-12-30  Michael Herstine  <sp1ff@pobox.com>
+
+	Upgraded to tokio 1.0.
+
+2021-12-18  Michael Herstine  <sp1ff@pobox.com>
 
 	Remove Snafu.
 	After some thought & some research, I decided I want to hand-craft

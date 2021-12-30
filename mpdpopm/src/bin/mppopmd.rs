@@ -389,7 +389,7 @@ commands to keep your tags up-to-date.",
     // One way or another, we are now the "final" process. Announce ourselves...
     info!("mppopmd {} logging at level {:#?}.", VERSION, lf);
     // spin-up the Tokio runtime...
-    let mut rt = tokio::runtime::Runtime::new().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
     // and invoke `mpdpopm'.
     rt.block_on(mpdpopm(cfg)).map_err(|err| Error::MpdPopm {
         source: err,

@@ -35,10 +35,8 @@ use async_trait::async_trait;
 use backtrace::Backtrace;
 use log::{debug, info};
 use regex::Regex;
-use tokio::{
-    net::{TcpStream, ToSocketAddrs, UnixStream},
-    prelude::*,
-};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::{TcpStream, ToSocketAddrs, UnixStream};
 
 use lazy_static::lazy_static;
 
@@ -463,7 +461,7 @@ where
 /// Utility function to parse the initial response to a connection from mpd
 async fn parse_connect_rsp<T>(sock: &mut T) -> Result<String>
 where
-    T: AsyncRead + AsyncWrite + Send + Unpin,
+    T: AsyncReadExt + AsyncWriteExt + Send + Unpin,
 {
     let mut buf = Vec::with_capacity(32);
     let _cb = sock.read_buf(&mut buf).await?;

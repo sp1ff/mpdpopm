@@ -75,7 +75,6 @@ pub Token: Value = {
                 error: "Internal parse error while parsing unsigned int" })
         }
     },
-    // TODO(sp1ff): use =>?
     <s:r#""([ \t'a-zA-Z0-9~!@#$%^&*()-=_+\[\]{}|;:<>,./?]|\\\\|\\"|\\')+""#> => {
         eprintln!("matched token: ``{}''.", s);
         let s = expect_quoted(s).unwrap();
@@ -84,7 +83,6 @@ pub Token: Value = {
             Err(_) => Value::Text(s),
         }
     },
-    // TODO(sp1ff): use =>?
     <s:r#"'([ \t"a-zA-Z0-9~!@#$%^&*()-=_+\[\]{}|;:<>,./?]|\\\\|\\'|\\")+'"#> => {
         eprintln!("matched token: ``{}''.", s);
         let s = expect_quoted(s).unwrap();

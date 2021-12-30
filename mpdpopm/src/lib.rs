@@ -64,7 +64,7 @@ use log::{debug, error, info};
 use tokio::{
     signal,
     signal::unix::{signal, SignalKind},
-    time::{delay_for, Duration},
+    time::{sleep, Duration},
 };
 
 use std::path::PathBuf;
@@ -187,7 +187,7 @@ pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
     let sighup = hup.recv().fuse();
     let sigkill = kill.recv().fuse();
 
-    let tick = delay_for(Duration::from_millis(cfg.poll_interval_ms)).fuse();
+    let tick = sleep(Duration::from_millis(cfg.poll_interval_ms)).fuse();
     pin_mut!(ctrl_c, sighup, sigkill, tick);
 
     let mut cmds = FuturesUnordered::<std::pin::Pin<std::boxed::Box<TaggedCommandFuture>>>::new();
@@ -245,7 +245,7 @@ pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
                                 break;
                             },
                             _ = tick => {
-                                tick.set(delay_for(Duration::from_millis(cfg.poll_interval_ms)).fuse());
+                                tick.set(sleep(Duration::from_millis(cfg.poll_interval_ms)).fuse());
                                 if let Some(fut) = state.update(&mut client,
                                                                 &cfg.playcount_command,
                                                                 &mut cfg.playcount_command_args
