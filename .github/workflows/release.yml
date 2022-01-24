@@ -11,8 +11,8 @@ on:
   # release-infra *or* it has a tag of n.n.n)
   push:
     # Un-comment this for testing
-    branches:
-      - master
+    # branches:
+    #   - master
     tags:
       - '[0-9]+.[0-9]+.[0-9]+'
 
