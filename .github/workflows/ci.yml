@@ -24,7 +24,7 @@ jobs:
         include:
         - rust-build: pinned
           os: ubuntu-18.04
-          rust: 1.47.0
+          rust: 1.56.1
         - rust-build: stable
           os: ubuntu-18.04
           rust: stable
@@ -33,7 +33,7 @@ jobs:
           rust: nightly
         - rust-build: pinned
           os: macos-10.15
-          rust: 1.47.0
+          rust: 1.56.1
         - rust-build: stable
           os: macos-10.15
           rust: stable
