@@ -2,11 +2,11 @@
 #+AUTHOR: Michael Herstine
 #+DESCRIPTION: mpdpopm
 #+EMAIL: sp1ff@pobox.com
-#+DATE: <2021-12-30 Thu 07:49>
+#+DATE: <2023-07-15 Sat 17:12>
 #+AUTODATE: t
 
 * Introduction
-
+1
 [[https://github.com/sp1ff/mpdpopm][mpdpopm]] provides a companion daemon to [[https://www.musicpd.org/][MPD]] for maintaining play counts, ratings and last-played timestamps, along with an associated CLI for talking to the companion daemon. Similar to [[https://github.com/vincent-petithory/mpdfav][mpdfav]], but written in Rust (which I prefer to Go), it will maintain this information in your sticker database. Along the lines of [[https://alip.github.io/mpdcron][mpdcron]], it will also allow you to keep that information up-to-date in your tags by invoking external (user-provided & -configured) commands.
 
 This README focuses on obtaining & installing [[https://github.com/sp1ff/mpdpopm][mpdpopm]]; the user manual is distributed with the package in [[https://www.gnu.org/software/texinfo/][Texinfo]] format. The HTML version of the user manual is hosted on my personal [[https://www.unwoundstack.com/doc/mpdpopm/curr][site]].
@@ -24,7 +24,7 @@ mppopm findadd "(rating > 128)"
 to add all songs with a rating greater than 128 to the play queue, or
 
 #+BEGIN_SRC bash
-mppopm findadd "(lastplayed <= \"2020-03-27\")"
+mppopm findadd "(lastplayed <= \"2022-07-15\")"
 #+END_SRC
 
 to add all songs that haven't been played in the last year.
@@ -179,6 +179,7 @@ You'll likely want to run the program in the foreground initially for ease of tr
 Once you've got the daemon running to your satisfaction, if you're on a systemd-based Linux distribution, have a look at the sample systemd unit file thanks to [[https://github.com/tanshoku][tanshoku]].
 
 [[https://github.com/tanshoku][tanshoku]] was kind enough to contribute a systemd unit for this purpose. At present, the build does not install it, but provides it as an example and leaves it to the user to install should they desire (and after they have edited it to suit their configuration). You can find it in =${prefix}/share/mpdpopm/examples= for the Autotools distribution, =/usr/local/share/mpdpopm/examples= for the Debian package, and in the =doc= folder for the pre-built binaries.
+
 *** mppopm
 
 At this point, [[https://github.com/sp1ff/mpdpopm][mpdpopm]] will happily monitor your playback history & keep play counts & last played timestamps for you. If you would like to rate tracks, however, you will need to somehow induce your favorite mpd client to send a "rating" message to the [[https://github.com/sp1ff/mpdpopm][mpdpopm]] commands channel ("unwoundstack.com:commands" by default). Since this is unlikely to be convenient, I wrote an mpd client for the purpose: a little CLI called =mppopm=. You can simply execute

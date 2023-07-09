@@ -61,7 +61,7 @@ $(srcdir)/src/vars.rs: $(builddir)/src/flapdoodle.rs
 dist-hook:
 	cp -v Cargo.toml $(distdir)/mpdpopm
 	cp -v src/flapdoodle.rs $(distdir)/src/vars.rs
-	cp -v mppopmd.{conf,service} $(disdir)
+	cp -v mppopmd.{conf,service} $(distdir)
 
 mppopmd$(EXEEXT): $(mppopmd_SOURCES) $(srcdir)/Cargo.toml $(srcdir)/src/vars.rs
 	cd $(top_srcdir)/mpdpopm && \

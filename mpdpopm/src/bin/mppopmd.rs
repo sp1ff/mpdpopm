@@ -31,8 +31,9 @@ use mpdpopm::mpdpopm;
 use mpdpopm::vars::LOCALSTATEDIR;
 
 use backtrace::Backtrace;
-use clap::{App, Arg};
+use clap::{value_parser, Arg, ArgAction, Command};
 use errno::errno;
+use lazy_static::lazy_static;
 use libc::{
     close, dup, exit, fork, getdtablesize, getpid, lockf, open, setsid, umask, write, F_TLOCK,
 };
@@ -126,6 +127,10 @@ impl fmt::Debug for Error {
 }
 
 type Result = std::result::Result<(), Error>;
+
+lazy_static! {
+    static ref DEF_CONF: String = format!("{}/mppopmd.conf", mpdpopm::vars::SYSCONFDIR);
+}
 
 /// Make this process into a daemon
 ///
@@ -273,9 +278,9 @@ fn daemonize() -> Result {
 /// Instead, stay synchronous until we've daemonized (or figured out that we don't need to), and
 /// only then fire-up the tokio runtime.
 fn main() -> Result {
-    use mpdpopm::vars::{AUTHOR, SYSCONFDIR, VERSION};
+    use mpdpopm::vars::{AUTHOR, VERSION};
 
-    let matches = App::new("mppopmd")
+    let matches = Command::new("mppopmd")
         .version(VERSION)
         .author(AUTHOR)
         .about("mpd + POPM")
@@ -287,27 +292,37 @@ database, but it allows you to keep that information in your tags, as well, by i
 commands to keep your tags up-to-date.",
         )
         .arg(
-            Arg::with_name("no-daemon")
+            Arg::new("no-daemon")
                 .short('F')
-                .about("do not daemonize; remain in foreground"),
+                .long("no-daemon")
+                .num_args(0)
+                .action(ArgAction::SetTrue)
+                .help("do not daemonize; remain in foreground"),
         )
         .arg(
-            Arg::with_name("config")
+            Arg::new("config")
                 .short('c')
-                .takes_value(true)
-                .value_name("FILE")
-                .default_value(&format!("{}/mppopmd.conf", SYSCONFDIR))
-                .about("path to configuration file"),
+                .long("config")
+                .num_args(1)
+                .value_parser(value_parser!(PathBuf))
+                .default_value(DEF_CONF.as_str())
+                .help("path to configuration file"),
         )
         .arg(
-            Arg::with_name("verbose")
+            Arg::new("verbose")
                 .short('v')
-                .about("enable verbose logging"),
+                .long("verbose")
+                .num_args(0)
+                .action(ArgAction::SetTrue)
+                .help("enable verbose logging"),
         )
         .arg(
-            Arg::with_name("debug")
+            Arg::new("debug")
                 .short('d')
-                .about("enable debug logging (implies --verbose)"),
+                .long("debug")
+                .num_args(0)
+                .action(ArgAction::SetTrue)
+                .help("enable debug logging (implies --verbose)"),
         )
         .get_matches();
 
@@ -316,7 +331,7 @@ commands to keep your tags up-to-date.",
     // they explicitly named a configuration file, and it's not there, they presumably want to know
     // about that.
     let cfgpth = matches
-        .value_of("config")
+        .get_one::<PathBuf>("config")
         .ok_or_else(|| Error::NoConfigArg {})?;
     let cfg = match std::fs::read_to_string(cfgpth) {
         // The config file (defaulted or not) existed & we were able to read its contents-- parse
@@ -327,8 +342,8 @@ commands to keep your tags up-to-date.",
         })?,
         // The config file (defaulted or not) either didn't exist, or we were unable to read its
         // contents...
-        Err(err) => match (err.kind(), matches.occurrences_of("config")) {
-            (std::io::ErrorKind::NotFound, 0) => {
+        Err(err) => match (err.kind(), matches.value_source("config").unwrap()) {
+            (std::io::ErrorKind::NotFound, clap::parser::ValueSource::DefaultValue) => {
                 // The user just accepted the default option value & that default didn't exist; we
                 // proceed with default configuration settings.
                 Config::default()
@@ -347,14 +362,14 @@ commands to keep your tags up-to-date.",
 
     // `--verbose' & `--debug' work as follows: if `--debug' is present, log at level Trace, no
     // matter what. Else, if `--verbose' is present, log at level Debug. Else, log at level Info.
-    let lf = match (matches.is_present("verbose"), matches.is_present("debug")) {
+    let lf = match (matches.get_flag("verbose"), matches.get_flag("debug")) {
         (_, true) => LevelFilter::Trace,
         (true, false) => LevelFilter::Debug,
         _ => LevelFilter::Info,
     };
 
     // If we're not running as a daemon...
-    if matches.is_present("no-daemon") {
+    if matches.get_flag("no-daemon") {
         // log to stdout & let our caller redirect that.
         let app = ConsoleAppender::builder()
             .target(Target::Stdout)

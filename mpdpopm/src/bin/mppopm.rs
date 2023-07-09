@@ -33,7 +33,8 @@ use mpdpopm::{
 };
 
 use backtrace::Backtrace;
-use clap::{App, Arg};
+use clap::{value_parser, Arg, ArgAction, Command};
+use lazy_static::lazy_static;
 use log::{debug, info, trace, LevelFilter};
 use log4rs::{
     append::console::{ConsoleAppender, Target},
@@ -91,7 +92,7 @@ pub enum Error {
     },
 }
 
-impl std::fmt::Display for Error {
+impl fmt::Display for Error {
     #[allow(unreachable_patterns)] // the _ arm is *currently* unreachable
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
@@ -115,6 +116,7 @@ impl std::fmt::Display for Error {
         }
     }
 }
+
 impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self)
@@ -168,16 +170,16 @@ impl Default for Config {
 ///
 /// Several sub-commands take zero or more positional arguments meant to name tracks, with the
 /// convention that zero indicates that the sub-command should use the currently playing track.
-/// This is a convenience function for mapping the value returned by [`values_of`] to a
+/// This is a convenience function for mapping the value returned by [`get_many`] to a
 /// convenient representation of the user's intentions.
 ///
-/// [`values_of`]: [`clap::ArgMatches::values_of`]
-async fn map_tracks<'a, Iter: Iterator<Item = &'a str>>(
+/// [`get_many`]: [`clap::ArgMatches::get_many`]
+async fn map_tracks<'a, Iter: Iterator<Item = &'a String>>(
     client: &mut Client,
     args: Option<Iter>,
 ) -> Result<Vec<String>> {
     let files = match args {
-        Some(iter) => iter.map(|x| x.to_string()).collect(),
+        Some(iter) => iter.map(|x| x.clone()).collect(),
         None => {
             let file = match client.status().await.map_err(|err| Error::Client {
                 source: err,
@@ -206,7 +208,7 @@ async fn map_tracks<'a, Iter: Iterator<Item = &'a str>>(
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// Retrieve ratings for one or more tracks
-async fn get_ratings<'a, Iter: Iterator<Item = &'a str>>(
+async fn get_ratings<'a, Iter: Iterator<Item = &'a String>>(
     client: &mut Client,
     sticker: &str,
     tracks: Option<Iter>,
@@ -262,7 +264,7 @@ async fn set_rating(
 }
 
 /// Retrieve the playcount for one or more tracks
-async fn get_play_counts<'a, Iter: Iterator<Item = &'a str>>(
+async fn get_play_counts<'a, Iter: Iterator<Item = &'a String>>(
     client: &mut Client,
     sticker: &str,
     tracks: Option<Iter>,
@@ -324,7 +326,7 @@ async fn set_play_counts(
 }
 
 /// Retrieve the last played time for one or more tracks
-async fn get_last_playeds<'a, Iter: Iterator<Item = &'a str>>(
+async fn get_last_playeds<'a, Iter: Iterator<Item = &'a String>>(
     client: &mut Client,
     sticker: &str,
     tracks: Option<Iter>,
@@ -450,9 +452,9 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-fn add_general_subcommands(app: App) -> App {
+fn add_general_subcommands(app: Command) -> Command {
     app.subcommand(
-        App::new("get-rating")
+        Command::new("get-rating")
             .about("retrieve the rating for one or more tracks")
             .long_about(
                 "
@@ -465,15 +467,17 @@ Ratings are expressed as an integer between 0 & 255, inclusive, with
 the convention that 0 denotes \"un-rated\".",
             )
             .arg(
-                Arg::with_name("with-uri")
+                Arg::new("with-uri")
                     .short('u')
                     .long("with-uri")
-                    .about("Always show the song URI, even when there is only one track"),
+                    .help("Always show the song URI, even when there is only one track")
+                    .num_args(0)
+                    .action(ArgAction::SetTrue),
             )
-            .arg(Arg::with_name("track").multiple(true)),
+            .arg(Arg::new("track").num_args(0..)),
     )
     .subcommand(
-        App::new("set-rating")
+        Command::new("set-rating")
             .about("set the rating for one track")
             .long_about(
                 "
@@ -490,11 +494,11 @@ per the Winamp convention:
     ***** 255
 ",
             )
-            .arg(Arg::with_name("rating").index(1).required(true))
-            .arg(Arg::with_name("track").index(2)),
+            .arg(Arg::new("rating").index(1).required(true))
+            .arg(Arg::new("track").index(2)),
     )
     .subcommand(
-        App::new("get-pc")
+        Command::new("get-pc")
             .about("retrieve the play count for one or more tracks")
             .long_about(
                 "
@@ -504,26 +508,28 @@ on stdout. With multiple arguments, print their play counts on stdout, one
 per line, prefixed by the track name.",
             )
             .arg(
-                Arg::with_name("with-uri")
+                Arg::new("with-uri")
                     .short('u')
                     .long("with-uri")
-                    .about("Always show the song URI, even when there is only one"),
+                    .help("Always show the song URI, even when there is only one")
+                    .num_args(0)
+                    .action(ArgAction::SetTrue),
             )
-            .arg(Arg::with_name("track").multiple(true)),
+            .arg(Arg::new("track").num_args(0..)),
     )
     .subcommand(
-        App::new("set-pc")
+        Command::new("set-pc")
             .about("set the play count for one track")
             .long_about(
                 "
 With one argument, set the play count of the current song to that argument. With a
 second argument, set the play count for that song to the first.",
             )
-            .arg(Arg::with_name("play-count").index(1).required(true))
-            .arg(Arg::with_name("track").index(2)),
+            .arg(Arg::new("play-count").index(1).required(true))
+            .arg(Arg::new("track").index(2)),
     )
     .subcommand(
-        App::new("get-lp")
+        Command::new("get-lp")
             .about("retrieve the last played timestamp for one or more tracks")
             .long_about(
                 "
@@ -536,15 +542,17 @@ name.
 The last played timestamp is expressed in seconds since Unix epoch.",
             )
             .arg(
-                Arg::with_name("with-uri")
+                Arg::new("with-uri")
                     .short('u')
                     .long("with-uri")
-                    .about("Always show the song URI, even when there is only one"),
+                    .help("Always show the song URI, even when there is only one")
+                    .num_args(0)
+                    .action(ArgAction::SetTrue),
             )
-            .arg(Arg::with_name("track").multiple(true)),
+            .arg(Arg::new("track").num_args(0..)),
     )
     .subcommand(
-        App::new("set-lp")
+        Command::new("set-lp")
             .about("set the last played timestamp for one track")
             .long_about(
                 "
@@ -552,12 +560,12 @@ With one argument, set the last played time of the current song. With two
 arguments, set the last played time for the second argument to the first.
 The last played timestamp is expressed in seconds since Unix epoch.",
             )
-            .arg(Arg::with_name("last-played").index(1).required(true))
-            .arg(Arg::with_name("track").index(2)),
+            .arg(Arg::new("last-played").index(1).required(true))
+            .arg(Arg::new("track").index(2)),
     )
-    .subcommand(App::new("get-playlists").about("retreive the list of stored playlists"))
+    .subcommand(Command::new("get-playlists").about("retreive the list of stored playlists"))
     .subcommand(
-        App::new("findadd")
+        Command::new("findadd")
             .about("search case-sensitively for songs matching matching a filter and add them to the queue")
             .long_about(
                 "
@@ -585,10 +593,10 @@ will add all songs whose artist tag matches the regexp \"pogues\" with a rating 
 `findadd' is case-sensitive; for case-insensitive searching see the `searchadd' command.
 ",
             )
-            .arg(Arg::with_name("filter").index(1).required(true)),
+            .arg(Arg::new("filter").index(1).required(true)),
     )
     .subcommand(
-        App::new("searchadd")
+        Command::new("searchadd")
             .about("search case-insensitively for songs matching matching a filter and add them to the queue")
             .long_about(
                 "
@@ -616,10 +624,13 @@ will add all songs whose artist tag matches the regexp \"pogues\" with a rating 
 `searchadd' is case-insensitive; for case-sensitive searching see the `findadd' command.
 ",
             )
-            .arg(Arg::with_name("filter").index(1).required(true)),
+            .arg(Arg::new("filter").index(1).required(true)),
     )
 }
 
+lazy_static! {
+    static ref DEF_CFG: String = format!("{}/.mppopm", std::env::var("HOME").unwrap());
+}
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                         The Big Kahuna                                         //
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -628,48 +639,54 @@ will add all songs whose artist tag matches the regexp \"pogues\" with a rating 
 async fn main() -> Result<()> {
     use mpdpopm::vars::{AUTHOR, VERSION};
 
-    let def_cfg = format!("{}/.mppopm", std::env::var("HOME").unwrap());
-    let mut app = App::new("mppopm")
+    let mut app = Command::new("mppopm")
         .version(VERSION)
         .author(AUTHOR)
         .about("`mppopmd' client")
         .arg(
-            Arg::with_name("verbose")
+            Arg::new("verbose")
                 .short('v')
                 .long("verbose")
-                .about("enable verbose logging"),
+                .num_args(0)
+                .action(ArgAction::SetTrue)
+                .help("enable verbose logging"),
         )
         .arg(
-            Arg::with_name("debug")
+            Arg::new("debug")
                 .short('d')
                 .long("debug")
-                .about("enable debug logging (implies --verbose)"),
+                .num_args(0)
+                .action(ArgAction::SetTrue)
+                .help("enable debug logging (implies --verbose)"),
         )
         .arg(
-            Arg::with_name("config")
+            Arg::new("config")
                 .short('c')
-                .takes_value(true)
+                .long("config")
+                .value_parser(value_parser!(PathBuf))
                 .value_name("FILE")
-                .default_value(&def_cfg)
-                .about("path to configuration file"),
+                .default_value(DEF_CFG.as_str())
+                .help("path to configuration file"),
         )
         .arg(
-            Arg::with_name("host")
+            Arg::new("host")
                 .short('H')
-                .takes_value(true)
+                .long("host")
+                .value_parser(value_parser!(String))
                 .value_name("HOST")
-                .about("MPD host"),
+                .help("MPD host"),
         )
         .arg(
-            Arg::with_name("port")
+            Arg::new("port")
                 .short('p')
-                .takes_value(true)
+                .long("port")
+                .value_parser(value_parser!(u16))
                 .value_name("PORT")
-                .about("MPD port"),
+                .help("MPD port"),
         );
 
     app = add_general_subcommands(app);
-    app = app.arg(Arg::with_name("args").multiple(true));
+    app = app.arg(Arg::new("args").num_args(0..));
 
     let matches = app.get_matches();
 
@@ -678,7 +695,7 @@ async fn main() -> Result<()> {
     // explicitly named a configuration file, and it's not there, they presumably want to know
     // about that.
     let cfgpth = matches
-        .value_of("config")
+        .get_one::<PathBuf>("config")
         .ok_or_else(|| Error::NoConfigArg {})?;
     let mut cfg = match std::fs::read_to_string(cfgpth) {
         // The config file (defaulted or not) existed & we were able to read its contents-- parse
@@ -689,8 +706,8 @@ async fn main() -> Result<()> {
         })?,
         // The config file (defaulted or not) either didn't exist, or we were unable to read its
         // contents...
-        Err(err) => match (err.kind(), matches.occurrences_of("config")) {
-            (std::io::ErrorKind::NotFound, 0) => {
+        Err(err) => match (err.kind(), matches.value_source("config").unwrap()) {
+            (std::io::ErrorKind::NotFound, clap::parser::ValueSource::DefaultValue) => {
                 // The user just accepted the default option value & that default didn't exist; we
                 // proceed with default configuration settings.
                 Config::default()
@@ -713,7 +730,7 @@ async fn main() -> Result<()> {
     //     2. configuration
     //     3. environment variable
 
-    match matches.value_of("host") {
+    match matches.get_one::<String>("host") {
         Some(host) => {
             cfg.host = String::from(host);
         }
@@ -727,13 +744,8 @@ async fn main() -> Result<()> {
         }
     }
 
-    match matches.value_of("port") {
-        Some(port) => {
-            cfg.port = port.parse::<u16>().map_err(|err| Error::ExpectedInt {
-                source: err,
-                back: Backtrace::new(),
-            })?;
-        }
+    match matches.get_one::<u16>("port") {
+        Some(port) => cfg.port = *port,
         None => {
             if cfg.port == 0 {
                 cfg.port = match std::env::var("MPD_PORT") {
@@ -748,7 +760,7 @@ async fn main() -> Result<()> {
     }
 
     // Handle log verbosity: debug => verbose
-    let lf = match (matches.is_present("verbose"), matches.is_present("debug")) {
+    let lf = match (matches.get_flag("verbose"), matches.get_flag("debug")) {
         (_, true) => LevelFilter::Trace,
         (true, false) => LevelFilter::Debug,
         _ => LevelFilter::Warn,
@@ -781,60 +793,67 @@ async fn main() -> Result<()> {
         return Ok(get_ratings(
             &mut client,
             &cfg.rating_sticker,
-            subm.values_of("track"),
-            subm.is_present("with-uri"),
+            subm.get_many::<String>("track"),
+            subm.get_flag("with-uri"),
         )
         .await?);
     } else if let Some(subm) = matches.subcommand_matches("set-rating") {
         return Ok(set_rating(
             &mut client,
             &cfg.commands_chan,
-            subm.value_of("rating").ok_or_else(|| Error::NoRating {})?,
-            subm.value_of("track"),
+            subm.get_one::<String>("rating")
+                .ok_or_else(|| Error::NoRating {})?,
+            subm.get_one::<String>("track")
+                .as_deref()
+                .map(|x| x.as_str()),
         )
         .await?);
     } else if let Some(subm) = matches.subcommand_matches("get-pc") {
         return Ok(get_play_counts(
             &mut client,
             &cfg.playcount_sticker,
-            subm.values_of("track"),
-            subm.is_present("with-uri"),
+            subm.get_many::<String>("track"),
+            subm.get_flag("with-uri"),
         )
         .await?);
     } else if let Some(subm) = matches.subcommand_matches("set-pc") {
         return Ok(set_play_counts(
             &mut client,
             &cfg.commands_chan,
-            subm.value_of("play-count")
+            subm.get_one::<String>("play-count")
                 .ok_or_else(|| Error::NoPlayCount {})?
                 .parse::<usize>()
                 .map_err(|err| Error::ExpectedInt {
                     source: err,
                     back: Backtrace::new(),
                 })?,
-            subm.value_of("track"),
+            subm.get_one::<String>("track")
+                .as_deref()
+                .map(|x| x.as_str()),
         )
         .await?);
     } else if let Some(subm) = matches.subcommand_matches("get-lp") {
         return Ok(get_last_playeds(
             &mut client,
             &cfg.lastplayed_sticker,
-            subm.values_of("track"),
-            subm.is_present("with-uri"),
+            subm.get_many::<String>("track"),
+            subm.get_flag("with-uri"),
         )
         .await?);
     } else if let Some(subm) = matches.subcommand_matches("set-lp") {
         return Ok(set_last_playeds(
             &mut client,
             &cfg.commands_chan,
-            subm.value_of("last-played")
+            subm.get_one::<String>("last-played")
                 .ok_or_else(|| Error::NoLastPlayed {})?
                 .parse::<u64>()
                 .map_err(|err| Error::ExpectedInt {
                     source: err,
                     back: Backtrace::new(),
                 })?,
-            subm.value_of("track"),
+            subm.get_one::<String>("track")
+                .as_deref()
+                .map(|x| x.as_str()),
         )
         .await?);
     } else if let Some(_subm) = matches.subcommand_matches("get-playlists") {
@@ -844,7 +863,7 @@ async fn main() -> Result<()> {
             &mut client,
             &cfg.commands_chan,
             // filter is mandatory
-            subm.value_of("filter").unwrap(),
+            subm.get_one::<String>("filter").unwrap(),
             true,
         )
         .await?);
@@ -853,12 +872,12 @@ async fn main() -> Result<()> {
             &mut client,
             &cfg.commands_chan,
             // filter is mandatory
-            subm.value_of("filter").unwrap(),
+            subm.get_one::<String>("filter").unwrap(),
             false,
         )
         .await?);
-    } else if let Some(args) = matches.values_of("args") {
-        return Ok(send_command(&mut client, &cfg.commands_chan, args).await?);
+    } else if let Some(args) = matches.get_many::<String>("args") {
+        return Ok(send_command(&mut client, &cfg.commands_chan, args.map(|x| x.as_str())).await?);
     }
 
     Err(Error::NoSubCommand)

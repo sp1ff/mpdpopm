@@ -539,8 +539,12 @@ pub fn parse_iso_8601(mut buf: &mut &[u8]) -> Result<i64> {
         if buf.len() != 0 {
             if peek(buf) == Some('Z') {
                 return Ok(Utc
-                    .ymd(year, month, day)
-                    .and_hms(hour, minute, second)
+                    .with_ymd_and_hms(year, month, day, hour, minute, second)
+                    .single()
+                    .ok_or(Error::BadISO8601String {
+                        text: buf.to_vec(),
+                        back: Backtrace::new(),
+                    })?
                     .timestamp());
             } else {
                 let next = peek(buf);
@@ -564,22 +568,42 @@ pub fn parse_iso_8601(mut buf: &mut &[u8]) -> Result<i64> {
                 }
 
                 if west {
-                    return Ok(FixedOffset::west(hours * 3600 + minutes * 60)
-                        .ymd(year, month, day)
-                        .and_hms(hour, minute, second)
+                    return Ok(FixedOffset::west_opt(hours * 3600 + minutes * 60)
+                        .ok_or(Error::BadISO8601String {
+                            text: buf.to_vec(),
+                            back: Backtrace::new(),
+                        })?
+                        .with_ymd_and_hms(year, month, day, hour, minute, second)
+                        .single()
+                        .ok_or(Error::BadISO8601String {
+                            text: buf.to_vec(),
+                            back: Backtrace::new(),
+                        })?
                         .timestamp());
                 } else {
-                    return Ok(FixedOffset::east(hours * 3600 + minutes * 60)
-                        .ymd(year, month, day)
-                        .and_hms(hour, minute, second)
+                    return Ok(FixedOffset::east_opt(hours * 3600 + minutes * 60)
+                        .ok_or(Error::BadISO8601String {
+                            text: buf.to_vec(),
+                            back: Backtrace::new(),
+                        })?
+                        .with_ymd_and_hms(year, month, day, hour, minute, second)
+                        .single()
+                        .ok_or(Error::BadISO8601String {
+                            text: buf.to_vec(),
+                            back: Backtrace::new(),
+                        })?
                         .timestamp());
                 }
             }
         }
     }
     Ok(Local
-        .ymd(year, month, day)
-        .and_hms(hour, minute, second)
+        .with_ymd_and_hms(year, month, day, hour, minute, second)
+        .single()
+        .ok_or(Error::BadISO8601String {
+            text: buf.to_vec(),
+            back: Backtrace::new(),
+        })?
         .timestamp())
 }
 

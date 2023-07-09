@@ -1,15 +1,17 @@
-# Setting up a nightly build & test job for `mpdpopm'. Much thanks to
-# BurntShushi from whom I shamelessly copied a lot of this
-# <https://github.com/BurntSushi/ripgrep/blob/master/.github/workflows/ci.yml>
-name: ci
+# This is the continuous integration job for `mpdpopm`. It will run on
+# both MacOS & Ubuntu, using various versions of Rust: a "pinned"
+# version representing the least-supported, the current stable & the
+# current nightly.
+name: Continuous Integration
+
 on:
+  workflow_dispatch:
   pull_request:
+    types: [opened, edited, reopened] # don't say `synchronize`-- that is taken care of by `push`
   push:
-    branches:
-      - master
-      - filters
   schedule:
     - cron: '00 01 * * *'
+
 jobs:
   build:
     name: build
@@ -19,70 +21,113 @@ jobs:
           - pinned
           - stable
           - nightly
-        # TODO(sp1ff): add more here
-        os: [ubuntu-18.04, macos-10.15]
+        os: [ubuntu-22.04, macos-12]
         include:
         - rust-build: pinned
-          os: ubuntu-18.04
-          rust: 1.56.1
+          os: ubuntu-22.04
+          # 1.56.0 was the first to support 2021 edition
+          # 1.58 -- required by cargo-deb...
+          # but it seems a cargo-deb dependency (rayon-core) needs 1.59,
+          # whereas another (`log1) requires 1.60, and the `cargo-deb`
+          # README says 1.63. Dependency `toml_edit` needs 1.64!
+          rust: 1.64
         - rust-build: stable
-          os: ubuntu-18.04
+          os: ubuntu-22.04
           rust: stable
         - rust-build: nightly
-          os: ubuntu-18.04
+          os: ubuntu-22.04
           rust: nightly
         - rust-build: pinned
-          os: macos-10.15
-          rust: 1.56.1
+          os: macos-12
+          rust: 1.64
         - rust-build: stable
-          os: macos-10.15
+          os: macos-12
           rust: stable
         - rust-build: nightly
-          os: macos-10.15
+          os: macos-12
           rust: nightly
     runs-on: ${{ matrix.os }}
     env:
       RUST_BACKTRACE: 1
+
     steps:
+
     - name: Checkout repo
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
+
+    # This is cheap, so do it early. I'd hate to install Rust, Eamcs,
+    # Tex &c only to find-out I'd forgotten a code TODO.
+    - name: Check for TODO-s
+      shell: bash
+      run: |
+        set -x
+        # `ripgrep` needs rust 1.70 to compile, but I stubbornly refuse
+        # to upgrade my "pinned" rust version!
+        # if rg -t rust 'TODO|TOOD|LATER|\\todo|todo!|dbg!'; then
+        if find . -iname '*.rs' -print0|xargs -0 grep -E 'TODO|TOOD|LATER|\\todo|todo!|dbg!'; then
+          echo "You have TODO-s"
+          exit 1
+        fi
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ matrix.rust }}
 
     - name: Install Tools (Ubuntu)
-      if: matrix.os == 'ubuntu-18.04'
+      if: matrix.os == 'ubuntu-22.04'
       shell: bash
       run: |
           pwd
           set -x
+          set -e
           sudo apt-get update
           sudo apt-get install -y autoconf automake emacs liblzma-dev texlive
 
     - name: Install Tools (macOS)
-      if: matrix.os == 'macos-10.15'
+      if: matrix.os == 'macos-12'
       shell: bash
       run: |
-          pwd
           set -x
+          # This seems wrong on multiple levels, but see here:
+          # <https://github.com/orgs/Homebrew/discussions/4612#discussioncomment-6339258>
+          set +e
+          pwd
+          brew cleanup
+          # Will exit with non-zero status if it finds problems, but can be handy
+          # for trouble-shooting:
+          brew doctor
           brew update
           brew upgrade
+          set -e
           brew install autoconf automake emacs
           brew install --cask basictex
 
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: ${{ matrix.rust }}
-        profile: minimal
-        override: true
+    - name: Install a modern version of Texinfo
+      if: matrix.os == 'macos-12'
+      shell: bash
+      run: |
+          set -x
+          mkdir tmp && cd tmp
+          # TODO(sp1ff): cache this
+          curl -L -O https://ftp.gnu.org/gnu/texinfo/texinfo-7.0.2.tar.gz
+          tar xf texinfo-7.0.2.tar.gz
+          cd texinfo-7.0.2
+          ./configure
+          make
+          make install
+          type -p texi2dvi
+          texi2dvi --version
 
     - name: Install additional Rust tooling
       shell: bash
       run: |
-          cargo install cargo-deb
+          cargo install --verbose cargo-deb
 
     - name: Configure mpdpopm
       shell: bash
       run: |
-        set -x
+        set -ex
         ./bootstrap && ./configure
 
     - name: Build mpdpopm
@@ -108,28 +153,24 @@ jobs:
       shell: bash
       run: |
         set -x
-        cd mpdpopm
-        pwd
-        cargo test --verbose
+        make check
 
     - name: Check the Autotools distribution (Ubuntu)
-      if: matrix.os == 'ubuntu-18.04'
+      if: matrix.os == 'ubuntu-22.04'
       shell: bash
       run: make distcheck
 
     - name: Check the Autotools distribution (MacOS)
-      if: matrix.os == 'macos-10.15'
+      if: matrix.os == 'macos-12'
       shell: bash
       run: |
         eval "$(/usr/libexec/path_helper)"
         make distcheck
 
     - name: Check the Debian package
-      if: matrix.os == 'ubuntu-18.04'
+      if: matrix.os == 'ubuntu-22.04'
       shell: bash
       run: |
         set -x
         cd mpdpopm
         cargo deb
-        
-      

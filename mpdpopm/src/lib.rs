@@ -229,23 +229,54 @@ pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
             let mut idle = Box::pin(idle_client.idle().fuse());
             loop {
                 select! {
-                            _ = ctrl_c => {
-                                info!("got ctrl-C");
-                                done = true;
-                                break;
-                            },
-                            _ = sighup => {
-                                info!("got SIGHUP");
-                                done = true;
-                                break;
-                            },
-                            _ = sigkill => {
-                                info!("got SIGKILL");
-                                done = true;
-                                break;
-                            },
-                            _ = tick => {
-                                tick.set(sleep(Duration::from_millis(cfg.poll_interval_ms)).fuse());
+                    _ = ctrl_c => {
+                        info!("got ctrl-C");
+                        done = true;
+                        break;
+                    },
+                    _ = sighup => {
+                        info!("got SIGHUP");
+                        done = true;
+                        break;
+                    },
+                    _ = sigkill => {
+                        info!("got SIGKILL");
+                        done = true;
+                        break;
+                    },
+                    _ = tick => {
+                        tick.set(sleep(Duration::from_millis(cfg.poll_interval_ms)).fuse());
+                        if let Some(fut) = state.update(&mut client,
+                                                        &cfg.playcount_command,
+                                                        &mut cfg.playcount_command_args
+                                                        .iter()
+                                                        .cloned(),
+                                                        music_dir).await.map_err(|err| Error::Playcounts{source: err, back: Backtrace::new()})? {
+                            cmds.push(fut);
+                        }
+                    },
+                    next = cmds.next() => match next {
+                        Some(out) => {
+                            debug!("output status is {:#?}", out.out);
+                            match out.upd {
+                                Some(uri) => {
+                                    debug!("{} needs to be updated", uri);
+                                    client.update(&uri).await.map_err(|err| Error::Client {
+                                        source: err,
+                                        back: Backtrace::new(),
+                                    })?;
+                                },
+                                None => debug!("No database update needed"),
+                            }
+                        },
+                        None => {
+                            debug!("No more commands to process.");
+                        }
+                    },
+                    res = idle => match res {
+                        Ok(subsys) => {
+                            debug!("subsystem {} changed", subsys);
+                            if subsys == IdleSubSystem::Player {
                                 if let Some(fut) = state.update(&mut client,
                                                                 &cfg.playcount_command,
                                                                 &mut cfg.playcount_command_args
@@ -254,49 +285,18 @@ pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
                                                                 music_dir).await.map_err(|err| Error::Playcounts{source: err, back: Backtrace::new()})? {
                                     cmds.push(fut);
                                 }
-                            },
-                            next = cmds.next() => match next {
-                                Some(out) => {
-                                    debug!("output status is {:#?}", out.out);
-                                    match out.upd {
-                                        Some(uri) => {
-                                            debug!("{} needs to be updated", uri);
-                                            client.update(&uri).await.map_err(|err| Error::Client {
-                    source: err,
-                    back: Backtrace::new(),
-                })?;
-                                        },
-                                        None => debug!("No database update needed"),
-                                    }
-                                },
-                                None => {
-                                    debug!("No more commands to process.");
-                                }
-                            },
-                            res = idle => match res {
-                                Ok(subsys) => {
-                                    debug!("subsystem {} changed", subsys);
-                                    if subsys == IdleSubSystem::Player {
-                                        if let Some(fut) = state.update(&mut client,
-                                                                        &cfg.playcount_command,
-                                                                        &mut cfg.playcount_command_args
-                                                                        .iter()
-                                                                        .cloned(),
-                                                                        music_dir).await.map_err(|err| Error::Playcounts{source: err, back: Backtrace::new()})? {
-                                            cmds.push(fut);
-                                        }
-                                    } else if subsys == IdleSubSystem::Message {
-                                        msg_check_needed = true;
-                                    }
-                                    break;
-                                },
-                                Err(err) => {
-                                    debug!("error {} on idle", err);
-                                    done = true;
-                                    break;
-                                }
+                            } else if subsys == IdleSubSystem::Message {
+                                msg_check_needed = true;
                             }
+                            break;
+                        },
+                        Err(err) => {
+                            debug!("error {} on idle", err);
+                            done = true;
+                            break;
                         }
+                    }
+                }
             }
         } // `idle_client' mutable borrow dropped here, which is important...
 
