@@ -1,7 +1,10 @@
-# Setting up a release workflow for `mpdpopm'. Much thanks to
-# BurntShushi from whom I shamelessly copied a lot of this
+# This is the release job for `mpdpopm`. It will create the Github
+# release itself as well as upload several artifacts.
+
+# Much thanks to BurntShushi from whom I shamelessly copied a lot of
+# this
 # <https://github.com/BurntSushi/ripgrep/blob/master/.github/workflows/release.yml>
-name: release
+name: Release
 on:
   # This permits this workflow to be triggered manually. See the
   # environment variable RELEASE_VERSION below, however.
@@ -12,18 +15,19 @@ on:
   push:
     # Un-comment this for testing
     # branches:
-    #   - master
+    #   - fix-release-gha-2023-07-22
     tags:
       - '[0-9]+.[0-9]+.[0-9]+'
 
 jobs:
+
   # This job will create the GitHub release
   create-release:
     name: create-release
     runs-on: ubuntu-latest
     # Un-comment this for testing
-    env:
-      RELEASE_VERSION: 0.3.0
+    # env:
+    #   RELEASE_VERSION: 0.3.1
     steps:
       - name: Create artifacts directory
         run: mkdir artifacts
@@ -67,43 +71,68 @@ jobs:
         build: [linux, macos]
         include:
         - build: linux
-          os: ubuntu-18.04
+          os: ubuntu-22.04
           rust: stable
           target: x86_64-unknown-linux
         - build: macos
-          os: macos-10.15
+          os: macos-12
           rust: stable
           target: x86_64-apple-darwin
+
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ matrix.rust }}
 
     - name: Install Tools (Ubuntu)
-      if: matrix.os == 'ubuntu-18.04'
+      if: matrix.os == 'ubuntu-22.04'
       shell: bash
       run: |
-          set -x
           pwd
+          set -x
+          set -e
+          sudo apt-get update
           sudo apt-get install -y autoconf automake emacs liblzma-dev texlive
 
     - name: Install Tools (macOS)
-      if: matrix.os == 'macos-10.15'
+      if: matrix.os == 'macos-12'
       shell: bash
       run: |
           set -x
+          # This seems wrong on multiple levels, but see here:
+          # <https://github.com/orgs/Homebrew/discussions/4612#discussioncomment-6339258>
+          set +e
           pwd
+          brew cleanup
+          # Will exit with non-zero status if it finds problems, but can be handy
+          # for trouble-shooting:
+          brew doctor
           brew update
           brew upgrade
+          set -e
           brew install autoconf automake emacs
           brew install --cask basictex
 
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: ${{ matrix.rust }}
-        profile: minimal
-        override: true
+    - name: Install a modern version of Texinfo
+      if: matrix.os == 'macos-12'
+      shell: bash
+      run: |
+          set -x
+          mkdir tmp && cd tmp
+          # TODO(sp1ff): cache this
+          curl -L -O https://ftp.gnu.org/gnu/texinfo/texinfo-7.0.2.tar.gz
+          tar xf texinfo-7.0.2.tar.gz
+          cd texinfo-7.0.2
+          ./configure
+          make
+          make install
+          type -p texi2dvi
+          texi2dvi --version
 
     - name: Install additional Rust tooling
       shell: bash
@@ -135,9 +164,9 @@ jobs:
     - name: Build mpdpopm
       run: |
         make all dist
-        echo "DISTRO_BZ2=mpdpopm-${{ env.RELEASE_VERSION }}.tar.bz2" >> $GITHUB_ENV
         echo "DISTRO_GZ=mpdpopm-${{ env.RELEASE_VERSION }}.tar.gz" >> $GITHUB_ENV
         echo "DISTRO_XZ=mpdpopm-${{ env.RELEASE_VERSION }}.tar.xz" >> $GITHUB_ENV
+        echo "DISTRO_ZST=mpdpopm-${{ env.RELEASE_VERSION }}.tar.zst" >> $GITHUB_ENV
 
     - name: Strip release binary (linux and macos)
       if: matrix.build == 'linux' || matrix.build == 'macos'
@@ -172,19 +201,8 @@ jobs:
         asset_name: ${{ env.ASSET }}
         asset_content_type: application/octet-stream
 
-    - name: Upload bzip2 tarball
-      if: matrix.os == 'ubuntu-18.04'
-      uses: actions/upload-release-asset@v1.0.1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ env.RELEASE_UPLOAD_URL }}
-        asset_path: ${{ env.DISTRO_BZ2 }}
-        asset_name: ${{ env.DISTRO_BZ2 }}
-        asset_content_type: application/octet-stream
-
     - name: Upload gzip tarball
-      if: matrix.os == 'ubuntu-18.04'
+      if: matrix.os == 'ubuntu-22.04'
       uses: actions/upload-release-asset@v1.0.1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -195,7 +213,7 @@ jobs:
         asset_content_type: application/octet-stream
 
     - name: Upload xzip tarball
-      if: matrix.os == 'ubuntu-18.04'
+      if: matrix.os == 'ubuntu-22.04'
       uses: actions/upload-release-asset@v1.0.1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -205,8 +223,19 @@ jobs:
         asset_name: ${{ env.DISTRO_XZ }}
         asset_content_type: application/octet-stream
 
+    - name: Upload zst tarball
+      if: matrix.os == 'ubuntu-22.04'
+      uses: actions/upload-release-asset@v1.0.1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ env.RELEASE_UPLOAD_URL }}
+        asset_path: ${{ env.DISTRO_ZST }}
+        asset_name: ${{ env.DISTRO_ZST }}
+        asset_content_type: application/octet-stream
+
     - name: Make Debian package
-      if: matrix.os == 'ubuntu-18.04'
+      if: matrix.os == 'ubuntu-22.04'
       shell: bash
       # You would think I can deduce the name of the package from
       # RELEASE_VERSION, but Debian uses different designators for
@@ -220,7 +249,7 @@ jobs:
         echo "DEBIAN_PKG=$(cd target/debian && ls *.deb)" >> $GITHUB_ENV
 
     - name: Upload Debian package
-      if: matrix.os == 'ubuntu-18.04'
+      if: matrix.os == 'ubuntu-22.04'
       uses: actions/upload-release-asset@v1.0.1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
