@@ -1,8 +1,21 @@
-2021-12-30  Michael Herstine  <sp1ff@pobox.com>
+2023-07-15  Michael Herstine  <sp1ff@pobox.com>
+
+	Update the Continuous Integration job & upgrade Clap to v4.
+	I suppose I conflated two changes in one commit. This patch:
+
+	    - updated the CI job & got it working again
+	    - upgraded to Clap v4
+	    - updates README & NEWS accordingly
+
+	Getting Clap v4. to *compile* was one thing-- the upgrade also
+	required a broad revision of the use of the Clap API (substituting
+	`get_flag()` for `contains_id()`, for instance.
+
+2023-07-15  Michael Herstine  <sp1ff@pobox.com>
 
 	Upgraded to tokio 1.0.
 
-2021-12-18  Michael Herstine  <sp1ff@pobox.com>
+2023-07-15  Michael Herstine  <sp1ff@pobox.com>
 
 	Remove Snafu.
 	After some thought & some research, I decided I want to hand-craft
@@ -14,7 +27,15 @@
 	    - `cargo test` passes
 	    - `cargo doc` builds cleanly
 
+2022-01-24  Michael Herstine  <sp1ff@pobox.com>
+
+	Commented out testing code in the release GHA
+
+	Updated the pinned rust toolchain version to 1.56.1 because that's the first release to support the 2021 edition and cargo-deb now requires that
+
 2021-10-11  Michael Herstine  <sp1ff@pobox.com>
+
+	working on release workflow
 
 	Address issue #5.
 	`mppopmd` can now communicate with the mpd server over a local

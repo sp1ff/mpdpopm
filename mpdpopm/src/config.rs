@@ -1,4 +1,4 @@
-// Copyright (C) 2021 Michael Herstine <sp1ff@pobox.com>
+// Copyright (C) 2021-2023 Michael Herstine <sp1ff@pobox.com>
 //
 // This file is part of mpdpopm.
 //

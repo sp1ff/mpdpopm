@@ -1,44 +1,54 @@
 # Docker image for building, debugging & packaging     -*- mode: dockerfile -*-
+# There _is_ a "rust" Docker image, but the purpose of these tests
+# is to start with a bare-bones *Debian* system & see what I need to
+# do to get mpdpopm installed.
 FROM debian:stable-slim AS base
 
 ARG DEBIAN_FRONTEND
 ENV DEBIAN_FRONTEND=${DEBIAN_FRONTEND:-noninteractive}
 
 RUN set -ex && \
-	apt-get update && \
-	apt-get install -y --no-install-recommends \
-        # Wow... \
-        ca-certificates \
-	# mpdpopm pre-requisistes \
-	rustc cargo locales texinfo \
-        # for my sanity \
-	less procps gdb sudo info vim && \
-        # tidy-up \
-	apt-get clean && \
-        rm -rf /tmp/* /var/tmp/* && \
-        # set the timezone to civilization (i.e. the Pacific) \
-	ln -fs /usr/share/zoneinfo/US/Pacific /etc/localtime && dpkg-reconfigure -f noninteractive tzdata && \
-	# Setup the en_US.UTF-8 locale \
-        cp -v /etc/locale.gen /etc/locale.gen.orig && \
-	sed 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen >> /tmp/locale.gen.$$ && \
-        mv -v /tmp/locale.gen.$$ /etc/locale.gen && \
-	locale-gen en_US.UTF-8 && \
-	update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 && \
-	# re-include the doc directories \
-	(test -d /usr/share/man/man1 || mkdir /usr/share/man/man1) && \
-	echo "path-include /usr/share/doc/scribbu" >> /etc/dpkg/dpkg.cfg.d/docker && \
-	echo "path-include /usr/share/man/man1/scribbu*" >> /etc/dpkg/dpkg.cfg.d/docker && \
-        echo "path-include /usr/share/info/scribbu.info" >> /etc/dpkg/dpkg.cfg.d/docker && \
-	useradd -ms /bin/bash -G users,sudo mgh && \
-        echo 'mgh:mgh' | chpasswd && \
-        cp -v /etc/sudoers /etc/sudoers.orig && \
-        echo 'mgh ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+    echo "Installing pre-requisites..." && \
+    apt-get update && \
+    apt-get upgrade && \
+    apt-get install -y --no-install-recommends \
+    # Wow... \
+    ca-certificates \
+    # mpdpopm pre-requisistes (we'll install rust separately, below) \
+    gcc gcc-multilib locales texinfo \
+    # not needed; just for my sanity while debugging \
+    less procps gdb sudo info vim curl && \
+    # tidy-up \
+    apt-get clean && \
+    rm -rf /tmp/* /var/tmp/* && \
+    # set the timezone to civilization (i.e. the Pacific) \
+    ln -fs /usr/share/zoneinfo/US/Pacific /etc/localtime && \
+    dpkg-reconfigure -f noninteractive tzdata && \
+    # Setup the en_US.UTF-8 locale \
+    cp -v /etc/locale.gen /etc/locale.gen.orig && \
+    sed -i 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen && \
+    locale-gen en_US.UTF-8 && \
+    update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 && \
+    # re-include the doc directories \
+    (test -d /usr/share/man/man1 || mkdir /usr/share/man/man1) && \
+    echo "path-include /usr/share/doc/scribbu" >> /etc/dpkg/dpkg.cfg.d/docker && \
+    echo "path-include /usr/share/man/man1/scribbu*" >> /etc/dpkg/dpkg.cfg.d/docker && \
+    echo "path-include /usr/share/info/scribbu.info" >> /etc/dpkg/dpkg.cfg.d/docker && \
+    echo "Installing pre-requisites... done." && \
+    # Finally, setup a non-privileged user \
+    useradd -ms /bin/bash -G users,sudo mgh && \
+    echo 'mgh:mgh' | chpasswd && \
+    cp -v /etc/sudoers /etc/sudoers.orig && \
+    echo 'mgh ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
 # The test suite won't work if this isn't set:
 ENV LANG="en_US.UTF-8"
 
 USER mgh
 
-RUN cargo install cargo-deb
-
-ENV PATH="/home/mgh/.cargo/bin:${PATH}"
+RUN set -ex && \
+    # install the Rust toolchain \
+    curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf -o /tmp/rustup.sh && \
+    chmod a+x /tmp/rustup.sh && /tmp/rustup.sh -y && \
+    . /home/mgh/.cargo/env && \
+    cargo install cargo-deb

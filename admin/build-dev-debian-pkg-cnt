@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -ex
+source $HOME/.cargo/env
 base="$(basename $1 .tar.gz)"
 version="${base:8}"
 cp -v /"$1" /tmp

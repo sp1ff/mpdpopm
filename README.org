@@ -2,11 +2,11 @@
 #+AUTHOR: Michael Herstine
 #+DESCRIPTION: mpdpopm
 #+EMAIL: sp1ff@pobox.com
-#+DATE: <2023-07-15 Sat 17:12>
+#+DATE: <2023-07-20 Thu 07:49>
 #+AUTODATE: t
 
 * Introduction
-1
+
 [[https://github.com/sp1ff/mpdpopm][mpdpopm]] provides a companion daemon to [[https://www.musicpd.org/][MPD]] for maintaining play counts, ratings and last-played timestamps, along with an associated CLI for talking to the companion daemon. Similar to [[https://github.com/vincent-petithory/mpdfav][mpdfav]], but written in Rust (which I prefer to Go), it will maintain this information in your sticker database. Along the lines of [[https://alip.github.io/mpdcron][mpdcron]], it will also allow you to keep that information up-to-date in your tags by invoking external (user-provided & -configured) commands.
 
 This README focuses on obtaining & installing [[https://github.com/sp1ff/mpdpopm][mpdpopm]]; the user manual is distributed with the package in [[https://www.gnu.org/software/texinfo/][Texinfo]] format. The HTML version of the user manual is hosted on my personal [[https://www.unwoundstack.com/doc/mpdpopm/curr][site]].
@@ -28,6 +28,10 @@ mppopm findadd "(lastplayed <= \"2022-07-15\")"
 #+END_SRC
 
 to add all songs that haven't been played in the last year.
+
+* Licsense
+
+[[https://github.com/sp1ff/mpdpopm][mpdpopm]] is GPL v3 software.
 
 * Prerequisites
 
@@ -56,10 +60,10 @@ Thanks  to a suggestion by [[https://github.com/m040601][m040601]], you can down
 
 #+BEGIN_SRC bash
 cd /tmp
-curl -L --output mpdpopm-0.3.2.tar.gz https://github.com/sp1ff/mpdpopm/releases/download/0.3.2/mpdpopm-0.3.2-x86_64-unknown-linux.tar.gz
-tar xf mpdpopm-0.3.2.tar.gz
-tree mpdpopm-0.3.2-x86_64-unknown-linux/
-mpdpopm-0.3.2-x86_64-unknown-linux/
+curl -L --output mpdpopm-0.3.1.tar.gz https://github.com/sp1ff/mpdpopm/releases/download/0.3.1/mpdpopm-0.3.1-x86_64-unknown-linux.tar.gz
+tar xf mpdpopm-0.3.1.tar.gz
+tree mpdpopm-0.3.1-x86_64-unknown-linux/
+mpdpopm-0.3.1-x86_64-unknown-linux/
 ├── bin
 │   ├── mppopm
 │   └── mppopmd
@@ -89,8 +93,8 @@ If you're running on a Debian-based Linux distribution, and you're on an x86_64 
 
 #+BEGIN_SRC bash
 cd /tmp
-curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.3.2/mpdpopm_0.3.2_amd64.deb
-sudo dpkg -i mpdpopm_0.3.2_amd64.deb
+curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.3.1/mpdpopm_0.3.1_amd64.deb
+sudo dpkg -i mpdpopm_0.3.1_amd64.deb
 #+END_SRC
 
 The binaries will be placed in =/usr/local/bin=, and you can proceed to [[#getting_started][Getting Started]], below.
@@ -101,8 +105,8 @@ If you're running on an Arch-based Linux distribution, and you're on an x86_64 p
 
 #+BEGIN_SRC bash
 cd /tmp
-curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.3.2/mpdpopm_0.3.2-1-x86_64.pkg.tar.zst
-sudo pacman -U mpdpopm_0.3.2-1-x86_64.pkg.tar.zst
+curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.3.1/mpdpopm_0.3.1-1-x86_64.pkg.tar.zst
+sudo pacman -U mpdpopm_0.3.1-1-x86_64.pkg.tar.zst
 #+END_SRC
 
 The binaries will be placed in =/usr/local/bin=, and you can proceed to [[#getting_started][Getting Started]], below.
@@ -113,9 +117,9 @@ If you've got the Rust toolchain as well as Autotools installed, you can build f
 
 #+BEGIN_SRC bash
 cd /tmp
-curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.3.2/mpdpopm-0.3.2.tar.xz
-tar xf mpdpopm-0.3.2.tar.xz
-cd mpdpopm-0.3.2
+curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.3.1/mpdpopm-0.3.1.tar.xz
+tar xf mpdpopm-0.3.1.tar.xz
+cd mpdpopm-0.3.1
 ./configure
 make
 make check
@@ -188,7 +192,7 @@ At this point, [[https://github.com/sp1ff/mpdpopm][mpdpopm]] will happily monito
 mppopm set-rating '*****'
 #+END_SRC
 
-to set the current track's rating to five "stars" (say =mppopm --help= for an explanation of the rating system; in brief-- it's Winamp's). NB. the set rating command by default produces no output; if you want confirmation that somethings happening, use the =-v= flag.
+to set the current track's rating to five "stars" (say =mppopm --help= for an explanation of the rating system; in brief-- it's Winamp's). NB. the set rating command by default produces no output; if you want confirmation that something's happening, use the =-v= flag.
 
 The CLI offers "get" & "set" commands for play counts, last played timestamps & the rating. It also provides commands for searching your songs on the basis of play count, rating & last played times in addition to the usual artist, title &c. Say =mppopm --help= for a full list of options, including how to tell it where the mpd server can be found on your network.
 

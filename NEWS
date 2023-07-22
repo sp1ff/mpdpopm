@@ -2,16 +2,15 @@ mpdpopm News -- history of user-visible changes           -*- outline -*-
 
 * 0.3 builds
 
-** 0.3.2 build
+** 0.3.1 build
 
 No user-visible changes; strictly a hygiene build:
 
+  - fixed the CI job
   - updated to Tokio 1.0
   - updated to Clap 4
   - updated the Rust edition to 2021
-** 0.3.1 build
-
-No user-visible changes; strictly a hygiene build (re-vamped error-handling throughout).
+  - re-vamped error-handling throughout
 ** 0.3.0 build
 
 *** Bugfixes
