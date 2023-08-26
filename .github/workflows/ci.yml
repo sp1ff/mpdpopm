@@ -30,7 +30,8 @@ jobs:
           # but it seems a cargo-deb dependency (rayon-core) needs 1.59,
           # whereas another (`log1) requires 1.60, and the `cargo-deb`
           # README says 1.63. Dependency `toml_edit` needs 1.64!
-          rust: 1.64
+          # ...and dependency `addr2line` now needs 1.65 (2023-08-23)
+          rust: 1.65
         - rust-build: stable
           os: ubuntu-22.04
           rust: stable
@@ -39,7 +40,7 @@ jobs:
           rust: nightly
         - rust-build: pinned
           os: macos-12
-          rust: 1.64
+          rust: 1.65
         - rust-build: stable
           os: macos-12
           rust: stable
