@@ -123,7 +123,7 @@ jobs:
     - name: Install additional Rust tooling
       shell: bash
       run: |
-          cargo install --verbose cargo-deb
+          cargo install --verbose --version=1.44.0 --locked cargo-deb
 
     - name: Configure mpdpopm
       shell: bash
