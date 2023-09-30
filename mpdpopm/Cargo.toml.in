@@ -17,6 +17,7 @@ lalrpop = { version = "0.20", features = ["lexer"] }
 
 [dependencies]
 anstyle = "=1.0.2" # Pin to preserve the ability to build with rust 1.65
+anstyle-parse = "=0.2.1" # Pin to preserve the ability to build with rust 1.65
 async-trait = "0.1.31"
 backtrace = "0.3.46"
 boolinator = "2.4.0"
