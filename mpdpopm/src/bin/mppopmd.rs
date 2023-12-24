@@ -211,7 +211,8 @@ fn daemonize() -> Result {
 
         // We next change the present working directory to avoid keeping the present one in
         // use. `mppopmd' can run pretty much anywhere, so /tmp is as good a place as any.
-        std::env::set_current_dir("/tmp").unwrap();
+        std::env::set_current_dir("/tmp").unwrap(); // A little unhappy about hard-coding that, but
+                                                    // if /tmp doesn't exist I expect few things will work.
 
         umask(0);
 

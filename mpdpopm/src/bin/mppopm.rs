@@ -629,8 +629,12 @@ will add all songs whose artist tag matches the regexp \"pogues\" with a rating 
 }
 
 lazy_static! {
-    static ref DEF_CFG: String = format!("{}/.mppopm", std::env::var("HOME").unwrap());
+    static ref DEF_CFG: String = format!(
+        "{}/.mppopm",
+        std::env::var("HOME").unwrap_or("".to_string())
+    );
 }
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                         The Big Kahuna                                         //
 ////////////////////////////////////////////////////////////////////////////////////////////////////
