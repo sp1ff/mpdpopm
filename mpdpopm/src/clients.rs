@@ -676,8 +676,8 @@ impl Client {
                 }
             })?))
         } else {
-            (text.starts_with("ACK ") && text.ends_with("no such sticker\n"))
-                .context(Operation::GetSticker, &msg)?;
+            // ACK_ERROR_NO_EXIST = 50 (Ack.hxx:17)
+            (text.starts_with("ACK [50@0]")).context(Operation::GetSticker, &msg)?;
             Ok(None)
         }
     }
