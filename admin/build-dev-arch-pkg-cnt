@@ -7,7 +7,7 @@ cp -v /$1 /tmp
 cp -v /PKGBUILD /tmp
 cd /tmp
 makepkg -g >> PKGBUILD
-makepkg
+makepkg --log
 sudo pacman --noconfirm -Uv mpdpopm-${version}-1-x86_64.pkg.tar.zst
 mppopm --version
 mppopm --help

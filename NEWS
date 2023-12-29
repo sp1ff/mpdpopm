@@ -2,20 +2,15 @@ mpdpopm News -- history of user-visible changes           -*- outline -*-
 
 * 0.3 builds
 
-** 0.3.3 build
+** 0.3.2 build
 
-*** Bugfixes
-
-**** [#10] Repair setting a sticker for the first time
-**** [#9] Correctly quote files with double-quotes in their name
 *** User-visible changes
 
 **** If HOME isn't set, look for .mppopm in /
-** 0.3.2 build
-
 *** Bugfixes
 
 **** Fix issue #10: mpdpopm now fails to set playcount for the first time
+**** Fix issue #9: Correctly quote files with double-quotes in their name
 ** 0.3.1 build
 
 No user-visible changes; strictly a hygiene build:

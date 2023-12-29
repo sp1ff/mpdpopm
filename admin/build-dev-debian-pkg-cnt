@@ -12,10 +12,11 @@ cp -v /LICENSE .
 ./configure
 cd mpdpopm
 cargo deb
-sudo dpkg --debug=2 -i target/debian/mpdpopm_${version}_amd64.deb
+ls -Alh target/debian
+sudo dpkg --debug=2 -i target/debian/mpdpopm_${version}-1_amd64.deb
 mppopm --version
 mppopm --help
 test -f /usr/local/share/info/mpdpopm.info
 sudo dpkg --debug=2 -r mpdpopm
-sudo cp -v target/debian/mpdpopm_${version}_amd64.deb /mpdpopm
+sudo cp -v target/debian/mpdpopm_${version}-1_amd64.deb /mpdpopm
 
