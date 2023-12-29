@@ -206,12 +206,12 @@ mod pc_lp_tests {
     #[tokio::test]
     async fn pc_smoke() {
         let mock = Box::new(Mock::new(&[
-            ("sticker get song \"a\" \"pc\"", "sticker: pc=11\nOK\n"),
+            ("sticker get song a pc", "sticker: pc=11\nOK\n"),
             (
-                "sticker get song \"a\" \"pc\"",
+                "sticker get song a pc",
                 "ACK [50@0] {sticker} no such sticker\n",
             ),
-            ("sticker get song \"a\" \"pc\"", "splat!"),
+            ("sticker get song a pc", "splat!"),
         ]));
         let mut cli = Client::new(mock).unwrap();
 
@@ -474,12 +474,12 @@ OK
 ",
             ),
             (
-                "sticker get song \"E/Enya - Wild Child.mp3\" \"pc\"",
+                "sticker get song \"E/Enya - Wild Child.mp3\" pc",
                 "sticker: pc=11\nOK\n",
             ),
             (
                 &format!(
-                    "sticker set song \"E/Enya - Wild Child.mp3\" \"lp\" \"{}\"",
+                    "sticker set song \"E/Enya - Wild Child.mp3\" lp {}",
                     SystemTime::now()
                         .duration_since(SystemTime::UNIX_EPOCH)
                         .unwrap()
@@ -487,10 +487,7 @@ OK
                 ),
                 "OK\n",
             ),
-            (
-                "sticker set song \"E/Enya - Wild Child.mp3\" \"pc\" \"12\"",
-                "OK\n",
-            ),
+            ("sticker set song \"E/Enya - Wild Child.mp3\" pc 12", "OK\n"),
         ]));
 
         let mut cli = Client::new(mock).unwrap();

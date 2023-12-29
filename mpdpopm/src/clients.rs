@@ -658,7 +658,7 @@ impl Client {
     where
         <T as FromStr>::Err: std::error::Error + Sync + Send + 'static,
     {
-        let msg = format!("sticker get song \"{}\" \"{}\"", file, sticker_name);
+        let msg = format!("sticker get song {} {}", quote(file), quote(sticker_name));
         let text = self.stream.req(&msg).await?;
         debug!("Sent message `{}'; got `{}'", &msg, &text);
 
@@ -689,9 +689,12 @@ impl Client {
         sticker_name: &str,
         sticker_value: &T,
     ) -> Result<()> {
+        let value_as_str = format!("{}", sticker_value);
         let msg = format!(
-            "sticker set song \"{}\" \"{}\" \"{}\"",
-            file, sticker_name, sticker_value
+            "sticker set song {} {} {}",
+            quote(file),
+            quote(sticker_name),
+            quote(&value_as_str)
         );
         let text = self.stream.req(&msg).await?;
         debug!("Sent `{}'; got `{}'", &msg, &text);
@@ -701,7 +704,7 @@ impl Client {
 
     /// Send a file to a playlist
     pub async fn send_to_playlist(&mut self, file: &str, pl: &str) -> Result<()> {
-        let msg = format!("playlistadd \"{}\" \"{}\"", pl, file);
+        let msg = format!("playlistadd {} {}", quote(pl), quote(file));
         let text = self.stream.req(&msg).await?;
         debug!("Sent `{}'; got `{}'.", &msg, &text);
 
@@ -955,7 +958,7 @@ mod client_tests {
     #[tokio::test]
     async fn client_smoke_test() {
         let mock = Box::new(Mock::new(&[(
-            "sticker get song \"foo.mp3\" \"stick\"",
+            "sticker get song foo.mp3 stick",
             "sticker: stick=splat\nOK\n",
         )]));
         let mut cli = Client::new(mock).unwrap();
@@ -1063,19 +1066,23 @@ state: no-idea!?",
     async fn test_get_sticker() {
         let mock = Box::new(Mock::new(&[
             (
-                "sticker get song \"foo.mp3\" \"stick\"",
+                "sticker get song foo.mp3 stick",
                 // On success, should get something like this...
                 "sticker: stick=2\nOK\n",
             ),
             (
-                "sticker get song \"foo.mp3\" \"stick\"",
+                "sticker get song foo.mp3 stick",
                 // and on failure, something like this:
                 "ACK [50@0] {sticker} no such sticker\n",
             ),
             (
-                "sticker get song \"foo.mp3\" \"stick\"",
+                "sticker get song foo.mp3 stick",
                 // Finally, let's try something nuts
                 "",
+            ),
+            (
+                "sticker get song \"filename_with\\\"doublequotes\\\".flac\" unwoundstack.com:playcount",
+                "sticker: unwoundstack.com:playcount=11\nOK\n",
             ),
         ]));
         let mut cli = Client::new(mock).unwrap();
@@ -1094,19 +1101,28 @@ state: no-idea!?",
             .get_sticker::<String>("foo.mp3", "stick")
             .await
             .unwrap_err();
+        let val = cli
+            .get_sticker::<String>(
+                "filename_with\"doublequotes\".flac",
+                "unwoundstack.com:playcount",
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(val, "11");
     }
 
     /// Test the `set_sticker' method
     #[tokio::test]
     async fn test_set_sticker() {
         let mock = Box::new(Mock::new(&[
-            ("sticker set song \"foo.mp3\" \"stick\" \"2\"", "OK\n"),
+            ("sticker set song foo.mp3 stick 2", "OK\n"),
             (
-                "sticker set song \"foo.mp3\" \"stick\" \"2\"",
+                "sticker set song foo.mp3 stick 2",
                 "ACK [50@0] {sticker} some error",
             ),
             (
-                "sticker set song \"foo.mp3\" \"stick\" \"2\"",
+                "sticker set song foo.mp3 stick 2",
                 "this makes no sense as a response",
             ),
         ]));
@@ -1120,9 +1136,9 @@ state: no-idea!?",
     #[tokio::test]
     async fn test_send_to_playlist() {
         let mock = Box::new(Mock::new(&[
-            ("playlistadd \"foo.m3u\" \"foo.mp3\"", "OK\n"),
+            ("playlistadd foo.m3u foo.mp3", "OK\n"),
             (
-                "playlistadd \"foo.m3u\" \"foo.mp3\"",
+                "playlistadd foo.m3u foo.mp3",
                 "ACK [101@0] {playlist} some error\n",
             ),
         ]));
