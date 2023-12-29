@@ -2,7 +2,7 @@
 #+AUTHOR: Michael Herstine
 #+DESCRIPTION: mpdpopm
 #+EMAIL: sp1ff@pobox.com
-#+DATE: <2023-07-20 Thu 07:49>
+#+DATE: <2023-12-28 Thu 18:23>
 #+AUTODATE: t
 
 * Introduction
@@ -24,7 +24,7 @@ mppopm findadd "(rating > 128)"
 to add all songs with a rating greater than 128 to the play queue, or
 
 #+BEGIN_SRC bash
-mppopm findadd "(lastplayed <= \"2022-07-15\")"
+mppopm findadd "(lastplayed <= \"2022-12-28\")"
 #+END_SRC
 
 to add all songs that haven't been played in the last year.
@@ -60,10 +60,10 @@ Thanks  to a suggestion by [[https://github.com/m040601][m040601]], you can down
 
 #+BEGIN_SRC bash
 cd /tmp
-curl -L --output mpdpopm-0.3.1.tar.gz https://github.com/sp1ff/mpdpopm/releases/download/0.3.1/mpdpopm-0.3.1-x86_64-unknown-linux.tar.gz
-tar xf mpdpopm-0.3.1.tar.gz
-tree mpdpopm-0.3.1-x86_64-unknown-linux/
-mpdpopm-0.3.1-x86_64-unknown-linux/
+curl -L --output mpdpopm-0.3.2.tar.gz https://github.com/sp1ff/mpdpopm/releases/download/0.3.2/mpdpopm-0.3.2-x86_64-unknown-linux.tar.gz
+tar xf mpdpopm-0.3.2.tar.gz
+tree mpdpopm-0.3.2-x86_64-unknown-linux/
+mpdpopm-0.3.2-x86_64-unknown-linux/
 ├── bin
 │   ├── mppopm
 │   └── mppopmd
@@ -93,8 +93,8 @@ If you're running on a Debian-based Linux distribution, and you're on an x86_64 
 
 #+BEGIN_SRC bash
 cd /tmp
-curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.3.1/mpdpopm_0.3.1_amd64.deb
-sudo dpkg -i mpdpopm_0.3.1_amd64.deb
+curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.3.2/mpdpopm_0.3.2_amd64.deb
+sudo dpkg -i mpdpopm_0.3.2_amd64.deb
 #+END_SRC
 
 The binaries will be placed in =/usr/local/bin=, and you can proceed to [[#getting_started][Getting Started]], below.
@@ -105,8 +105,8 @@ If you're running on an Arch-based Linux distribution, and you're on an x86_64 p
 
 #+BEGIN_SRC bash
 cd /tmp
-curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.3.1/mpdpopm_0.3.1-1-x86_64.pkg.tar.zst
-sudo pacman -U mpdpopm_0.3.1-1-x86_64.pkg.tar.zst
+curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.3.2/mpdpopm_0.3.2-1-x86_64.pkg.tar.zst
+sudo pacman -U mpdpopm_0.3.2-1-x86_64.pkg.tar.zst
 #+END_SRC
 
 The binaries will be placed in =/usr/local/bin=, and you can proceed to [[#getting_started][Getting Started]], below.
@@ -117,9 +117,9 @@ If you've got the Rust toolchain as well as Autotools installed, you can build f
 
 #+BEGIN_SRC bash
 cd /tmp
-curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.3.1/mpdpopm-0.3.1.tar.xz
-tar xf mpdpopm-0.3.1.tar.xz
-cd mpdpopm-0.3.1
+curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.3.2/mpdpopm-0.3.2.tar.xz
+tar xf mpdpopm-0.3.2.tar.xz
+cd mpdpopm-0.3.2
 ./configure
 make
 make check
@@ -158,9 +158,9 @@ This README provides a "quick-start" guide to getting mpdpopm up & running. For 
   1. =mppopmd= is the companion daemon process
   2. =mppopm= is the associated command-line interface to the daemon
 
-=mppopmd= will monitor =mpd= for song playback & note when songs complete; this is how it knows to increment the playcount & update the last played timestamp for each song to which you listen. =mppopmd= records this information (i.e play counts, last played and ratings) using =mpd= [[https://www.musicpd.org/doc/html/protocol.html#stickers][stickers]]. A sticker is a little bit of textual information which clients can attach to songs in the form of a name-value pair. [[https://github.com/sp1ff/mpdpopm][mpdpopm]] defines a new sticker name for each of these items & udpates the values for each song when & as requested.
+=mppopmd= will monitor =mpd= for song playback & note when songs complete; this is how it knows to increment the playcount & update the last played timestamp for each song to which you listen. =mppopmd= records this information (i.e. play counts, last played and ratings) using =mpd= [[https://www.musicpd.org/doc/html/protocol.html#stickers][stickers]]. A sticker is a little bit of textual information which clients can attach to songs in the form of a name-value pair. [[https://github.com/sp1ff/mpdpopm][mpdpopm]] defines a new sticker name for each of these items & udpates the values for each song when & as requested.
 
-Of course, other =mpd= clients will not, in general, be aware of =mppopmd= or the stickers it sets: you the user will have to bridge that gap. You could of course just fire-up =netcat= & start sending commands over the MPD protocol using =sendmessage=, but that's not particularly convenient-- that's where =mppopm= comes in.  =mppopm= is the client interface; one can through it instruct =mppopmd= to set ratings, get & set the various stickers mpdpopm knows about, and even search for songs in terms of mpdpopm attributes & add them to the play queue.
+Of course, other =mpd= clients will not, in general, be aware of =mppopmd= or the stickers it sets: you the user will have to bridge that gap. You could of course just fire-up =netcat= & start sending commands over the MPD protocol using =sendmessage=, but that's not particularly convenient-- that's where =mppopm= comes in. =mppopm= is the client interface; one can through it instruct =mppopmd= to set ratings, get & set the various stickers mpdpopm knows about, and even search for songs in terms of mpdpopm attributes & add them to the play queue.
 
 ** Getting Set-up
 
@@ -211,5 +211,7 @@ MPD will handle the "artist =~" clause & [[https://github.com/sp1ff/mpdpopm][mpd
 This will hopefully be a start to making [[https://github.com/sp1ff/mpdpopm][mpdpopm]] into a more of a user-facing application than a developer-facing utlity.
 
 Windows support may be some time coming; the daemon depends on Unix signal handling, the MPD Unix socket, and the Unix daemon logic, especially =fork= & =exec=... if you'd like to run it on Windows, let me know-- if there's enough interest, and I can get some kind of Windows VM setup, I'll look at a port.
+
+Longer-term, I see [[https://github.com/sp1ff/mpdpopm][mpdpopm]] as a "dual" to mpd-- mpd commits to never altering your files. mpdpopm will take on that task in terms of tags, at least. To address the "plumbing, not the sink" problem, I'd like to author a client that will handle player control (of course), but also visualization & tag editing-- a complete music library solution.
 
 Suggestions, bug reports & PRs welcome!

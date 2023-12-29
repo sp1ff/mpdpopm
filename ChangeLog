@@ -1,3 +1,65 @@
+2023-12-28  Michael Herstine  <sp1ff@pobox.com>
+
+	Assorted clean-up pre-merge:
+	    - fix the project CI (again)
+	    - I've decided on a policy of supporting rust versions going back
+	      six months. At the time of this writing, that's rust 1.70.0.
+	    - address a corner case when HOME isn not set
+	    - update GNU files
+
+	[#9] Correct the way quoting is done when sending commands.
+	This commit will cause the client to properly quote string
+	parameters in commands.
+
+2023-12-23  Michael Herstine  <sp1ff@pobox.com>
+
+	[Issue #010] Repair setting a sticker for the first time.
+	In MPD commit 432675d4c23450c527333ed4a29d13f843e001da the error
+	message for "sticker get" when the sticker is not found was changed.
+	mpdpopm (foolishly) relied on the error message. This patch changes
+	the salient logic to examine only the error code, instead.
+
+2023-10-31  Michael Herstine  <sp1ff@pobox.com>
+
+	Fix the nightly CI workflow.
+	The `toml` crate recently made a release that no longer builds
+	with Rust 1.65. This commit pins that crate along with a few
+	of its dependencies to preserve the ability of this project
+	to build on the "oldest supported" version of Rust.
+
+2023-09-29  Michael Herstine  <sp1ff@pobox.com>
+
+	fix CI
+
+2023-09-16  Michael Herstine  <michael@lithic>
+
+	[CI] Fix the CI job.
+	A number of dependencies no longer build under rust 1.65. I
+	pinned 'em in order to preserve the minimum supported version.
+
+	  - toml
+	  - toml-edit
+	  - cargo-deb
+	  - anstyle to 1.0.2
+
+2023-08-26  Michael Herstine  <sp1ff@pobox.com>
+
+	Pinned a few clap dependencies in order to preserve the ability to build with rust 1.65
+
+2023-08-25  Michael Herstine  <sp1ff@pobox.com>
+
+	Update pinned rust toolchain version to 1.65 to accomodate a dependency
+
+2023-07-22  Michael Herstine  <sp1ff@pobox.com>
+
+	Update/fix the release workflow.
+	The `release` workflow had gotten stale & naturally didn't work
+	after long disuse.
+
+2023-07-21  Michael Herstine  <sp1ff@pobox.com>
+
+	mpdpopm release 0.3.1.
+
 2023-07-15  Michael Herstine  <sp1ff@pobox.com>
 
 	Update the Continuous Integration job & upgrade Clap to v4.
