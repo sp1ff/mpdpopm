@@ -20,7 +20,7 @@ async-trait = "0.1"
 backtrace = "0.3"
 boolinator = "2.4"
 chrono = "0.4"
-clap = "4.4" # Pin to preserve the ability to build with rust 1.65
+clap = "~4.4" # Pin to preserve the ability to build with rust 1.65
 errno = "0.2"
 futures = "0.3"
 lalrpop-util = { version = "0.20", features = ["lexer"] }
