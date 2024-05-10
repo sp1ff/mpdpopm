@@ -1,3 +1,9 @@
+2024-05-10  Michael Herstine  <sp1ff@pobox.com>
+
+	Cutting release 0.3.3
+
+	Merge branch 'rel-0.3.2'
+
 2024-05-09  Michael Herstine  <sp1ff@pobox.com>
 
 	[#6] Update the test scripts for Arch packing.
@@ -11,6 +17,7 @@
 2024-03-12  Michael Herstine  <sp1ff@pobox.com>
 
 	Switching clap to a tilde version dependency; throwing-in a change to version.texi that got missed
+
 2023-12-29  Michael Herstine  <sp1ff@pobox.com>
 
 	Cutting release 0.3.2

@@ -2,7 +2,7 @@
 #+AUTHOR: Michael Herstine
 #+DESCRIPTION: mpdpopm
 #+EMAIL: sp1ff@pobox.com
-#+DATE: <2024-05-09 Thu 21:10>
+#+DATE: <2024-05-10 Fri 07:09>
 #+AUTODATE: t
 
 * Introduction
@@ -60,10 +60,10 @@ Thanks  to a suggestion by [[https://github.com/m040601][m040601]], you can down
 
 #+BEGIN_SRC bash
 cd /tmp
-curl -L --output mpdpopm-0.3.2.tar.gz https://github.com/sp1ff/mpdpopm/releases/download/0.3.2/mpdpopm-0.3.2-x86_64-unknown-linux.tar.gz
-tar xf mpdpopm-0.3.2.tar.gz
-tree mpdpopm-0.3.2-x86_64-unknown-linux/
-mpdpopm-0.3.2-x86_64-unknown-linux/
+curl -L --output mpdpopm-0.3.3.tar.gz https://github.com/sp1ff/mpdpopm/releases/download/0.3.3/mpdpopm-0.3.3-x86_64-unknown-linux.tar.gz
+tar xf mpdpopm-0.3.3.tar.gz
+tree mpdpopm-0.3.3-x86_64-unknown-linux/
+mpdpopm-0.3.3-x86_64-unknown-linux/
 ├── bin
 │   ├── mppopm
 │   └── mppopmd
@@ -93,8 +93,8 @@ If you're running on a Debian-based Linux distribution, and you're on an x86_64 
 
 #+BEGIN_SRC bash
 cd /tmp
-curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.3.2/mpdpopm_0.3.2_amd64.deb
-sudo dpkg -i mpdpopm_0.3.2_amd64.deb
+curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.3.3/mpdpopm_0.3.3_amd64.deb
+sudo dpkg -i mpdpopm_0.3.3_amd64.deb
 #+END_SRC
 
 The binaries will be placed in =/usr/local/bin=, and you can proceed to [[#getting_started][Getting Started]], below.
@@ -109,9 +109,9 @@ If you've got the Rust toolchain as well as Autotools installed, you can build f
 
 #+BEGIN_SRC bash
 cd /tmp
-curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.3.2/mpdpopm-0.3.2.tar.xz
-tar xf mpdpopm-0.3.2.tar.xz
-cd mpdpopm-0.3.2
+curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.3.3/mpdpopm-0.3.3.tar.xz
+tar xf mpdpopm-0.3.3.tar.xz
+cd mpdpopm-0.3.3
 ./configure
 make
 make check
