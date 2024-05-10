@@ -2,7 +2,7 @@
 #+AUTHOR: Michael Herstine
 #+DESCRIPTION: mpdpopm
 #+EMAIL: sp1ff@pobox.com
-#+DATE: <2024-05-09 Thu 21:10>
+#+DATE: <2024-05-10 Fri 16:46>
 #+AUTODATE: t
 
 * Introduction
@@ -101,8 +101,13 @@ The binaries will be placed in =/usr/local/bin=, and you can proceed to [[#getti
 
 ** Use the Arch package
 
-If you're running on an Arch-based Linux distribution, I'm in the process of submitting packages to the [[https://aur.archlinux.org/][AUR]].
+If you're running on an Arch-based Linux distribution, I maintain a few packages in the [[https://aur.archlinux.org/][AUR]]:
 
+  - [[https://aur.archlinux.org/packages/mpdpopm][mpdpopm]]: which will grab the latest release & build it locally
+  - [[https://aur.archlinux.org/packages/mpdpopm-git][mpdpopm-git]]: grab =HEAD= from =master= & build it locally
+  - [[https://aur.archlinux.org/packages/mpdpopm-bin][mpdpopm-bin]]: grab the pre-built binaries from the latest release & install 'em
+
+You can clone the git repo for whichever package you'd like to use (remotes at link), do =makepkg= & then use pacman to install the package you just built, or use an AUR package manager (I use =yay=, e.g.)
 ** Autotools source distributions
 
 If you've got the Rust toolchain as well as Autotools installed, you can build from source via Autotools:
