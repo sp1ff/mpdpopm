@@ -1,4 +1,20 @@
+2024-05-09  Michael Herstine  <sp1ff@pobox.com>
+
+	[#6] Update the test scripts for Arch packing.
+	As part of issue #6, I'm changing the way I make an Arch package to
+	publish a few PKGBUILDs (-bin, -git, &c). This patchset updates a
+	few test scripts.
+
+	Also, add LICENSE to the distribution & fix the Debian package build.
+	Somehow, the name got out of sync; I was missing a '-1'.
+
+2024-03-12  Michael Herstine  <sp1ff@pobox.com>
+
+	Switching clap to a tilde version dependency; throwing-in a change to version.texi that got missed
+
 2023-12-28  Michael Herstine  <sp1ff@pobox.com>
+
+	Cutting release 0.3.2
 
 	Assorted clean-up pre-merge:
 	    - fix the project CI (again)

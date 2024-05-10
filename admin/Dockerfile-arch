@@ -1,39 +1,43 @@
 # Docker image for building, debugging & packaging    -*- mode: dockerfile; -*-
 FROM archlinux:latest AS base
 
-# Bootstrap
-RUN pacman --noconfirm -Syu && \
-	cp -v /etc/pacman.conf /etc/pacman.conf.orig && \
-	sed -e 's/^NoExtract/# NoExtract/' /etc/pacman.conf > /tmp/pacman.conf.tmp && \
-	cp -v /tmp/pacman.conf.tmp /etc/pacman.conf
+# I've had problems with the base image having out-of-date
+# mirrors. Begin by installing `reflector` & upating the
+# mirrorlist. Then update the system passing "-yy" to force a refresh
+# of all package databases (even if they appear to be up-to-date [this
+# has resolved the dreaded "404" problem for me in the past]).
+
+# See here https://bbs.archlinux.org/viewtopic.php?id=141029
+RUN pacman-key --init && pacman --noconfirm -Sy archlinux-keyring && \
+    pacman --noconfirm -Syyu reflector && \
+    reflector --latest 10 --sort rate --save /etc/pacman.d/mirrorlist && \
+    cp -v /etc/pacman.conf /etc/pacman.conf.orig && \
+    sed -i -e 's/^NoExtract/# NoExtract/' /etc/pacman.conf
 
 # WORKAROUND for glibc 2.33 and old Docker
-# Seems to be no longer needed
+# (seems to be no longer needed)
 # See https://github.com/actions/virtual-environments/issues/2658
 # Thanks to https://github.com/lxqt/lxqt-panel/pull/1562
 # RUN patched_glibc=glibc-linux4-2.33-4-x86_64.pkg.tar.zst && \
 #     curl -LO "https://repo.archlinuxcn.org/x86_64/$patched_glibc" && \
 # 	bsdtar -C / -xvf "$patched_glibc"
 
-# Get the mirrorlist up-to-date
-# RUN pacman rsync --noconfirm -S reflector rsync && \
-#     reflector --latest 16 --protocol https --sort rate --save /etc/pacman.d/mirrorlist
-
-# See here https://bbs.archlinux.org/viewtopic.php?id=141029
-# Not sure why the -yyu needed, perhaps as a result of reflector changing the mirrorlist?
-# RUN pacman --noconfirm -Syyu man-db man-pages texinfo vim base-devel gdb rust cargo && \
-RUN pacman --noconfirm -S man-db man-pages texinfo vim base-devel gdb rust cargo && \
- 	ln -sf /usr/share/zoneinfo/America/Los_Angeles /etc/localtime && \
-	useradd -ms /bin/bash -G users,wheel mgh && \
-	echo 'mgh:mgh' | chpasswd && \
-	echo "%wheel ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
-	mkdir /cores && chmod 777 /cores && \
-        echo "kernel.core_pattern=/cores/core.%e.%p" >> /etc/sysctl.d/50-coredump.conf
+RUN pacman --noconfirm -S base-devel pacman-contrib namcap git man-db man-pages \
+    texinfo vim gdb rust cargo && \
+    ln -sf /usr/share/zoneinfo/America/Los_Angeles /etc/localtime && \
+    useradd -ms /bin/bash -G users,wheel mgh && \
+    echo 'mgh:mgh' | chpasswd && \
+    echo "%wheel ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
+    mkdir /cores && chmod 777 /cores && \
+    echo "kernel.core_pattern=/cores/core.%e.%p" >> /etc/sysctl.d/50-coredump.conf && \
+    mkdir -p /tmp/mpdpopm{,-git,-bin} && \
+    chown mgh:users /tmp/mpdpopm{,-git,-bin} && \
+    chmod 775 /tmp/mpdpopm{,-git,-bin}
 
 # Rhm... needed?
 # sudo sysctl -p /etc/sysctl.d/50-coredump.conf
 
 USER mgh
-
-ENV PATH="/home/mgh/.cargo/bin:${PATH}"
+# Huh... still needed?
+# ENV PATH="/home/mgh/.cargo/bin:${PATH}"
 

@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+
+# This script will mount the PKGBUILDs for my assorted AUR packages into a thin
+# Arch Linux Docker container and then attempt to build, install & uninstall
+# each.
+
+# It's meant for use after an mpdpopm release, when I'm updating my AUR
+# packages, before releasing new package versions.
+
+# It is presumably run from the root mpdpopm directory.
+
+# Invoke as `admin/test-aur-packages $version`
+
+set -ex
+docker build -t mpdpopm-arch:latest -f admin/Dockerfile-arch --label "mpdpopm-arch" .
+
+# If this 👆 fails with 404s when trying to download packages, try deleting any
+# Arch images before blowing away everything.
+
+version="$1"
+here=$(pwd)
+script=${here}/admin/test-aur-packages-cnt
+
+docker_args="-it"
+docker_args="$docker_args -v ${script}:/build-pkgs:ro"
+docker_args="$docker_args -v ${HOME}/code/projects/mpdpopm-aur/PKGBUILD:/tmp/mpdpopm/PKGBUILD"
+docker_args="$docker_args -v ${HOME}/code/projects/mpdpopm-git/PKGBUILD:/tmp/mpdpopm-git/PKGBUILD"
+docker_args="$docker_args -v ${HOME}/code/projects/mpdpopm-bin/PKGBUILD:/tmp/mpdpopm-bin/PKGBUILD"
+docker_args="$docker_args --privileged"
+docker_args="$docker_args --ulimit core=-1"
+docker_args="$docker_args -u mgh"
+docker_args="$docker_args --name=mpdpopm-aur"
+
+docker container rm -f mpdpopm-aur
+
+# Un-comment to just drop into the container & experiment
+# cmd="docker run ${docker_args} mpdpopm-arch:latest"
+cmd="docker run ${docker_args} mpdpopm-arch:latest /build-pkgs ${version}"
+exec $cmd

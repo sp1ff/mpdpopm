@@ -1,0 +1,59 @@
+#!/bin/bash
+
+# This script is presumably mounted into the build container. Invoke with
+# the package version.
+
+set -ex
+version="$1"
+
+# Test the "stock" package
+cd /tmp/mpdpopm
+makepkg
+namcap mpdpopm-${version}-1-x86_64.pkg.tar.zst | tee -a /tmp/namcap.$$.log
+pacman -Qlp mpdpopm-${version}-1-x86_64.pkg.tar.zst
+pacman -Qip mpdpopm-${version}-1-x86_64.pkg.tar.zst
+if grep -F ' E: ' /tmp/namcap.$$.log; then
+    echo "There were errors and/or warnings from namcap:"
+    cat /tmp/namcap.$$.log
+    exit 1
+fi
+sudo pacman --noconfirm -Uv mpdpopm-${version}-1-x86_64.pkg.tar.zst
+mppopm --version
+mppopm --help
+test -f /usr/share/info/mpdpopm.info.gz
+sudo pacman --noconfirm -R mpdpopm
+
+# Test the "git" package
+cd /tmp/mpdpopm-git
+makepkg
+namcap mpdpopm-git-${version}-1-x86_64.pkg.tar.zst | tee -a /tmp/namcap.$$.log
+pacman -Qlp mpdpopm-git-${version}-1-x86_64.pkg.tar.zst
+pacman -Qip mpdpopm-git-${version}-1-x86_64.pkg.tar.zst
+if grep -F ' E: ' /tmp/namcap.$$.log; then
+    echo "There were errors and/or warnings from namcap:"
+    cat /tmp/namcap.$$.log
+    exit 1
+fi
+sudo pacman --noconfirm -Uv mpdpopm-git-${version}-1-x86_64.pkg.tar.zst
+mppopm --version
+mppopm --help
+test -f /usr/share/info/mpdpopm.info.gz
+sudo pacman --noconfirm -R mpdpopm-git
+
+# Finally, test the "bin" package
+cd /tmp/mpdpopm-bin
+makepkg
+namcap mpdpopm-bin-${version}-1-x86_64.pkg.tar.zst | tee -a /tmp/namcap.$$.log
+pacman -Qlp mpdpopm-bin-${version}-1-x86_64.pkg.tar.zst
+pacman -Qip mpdpopm-bin-${version}-1-x86_64.pkg.tar.zst
+if grep -F ' E: ' /tmp/namcap.$$.log; then
+    echo "There were errors and/or warnings from namcap:"
+    cat /tmp/namcap.$$.log
+    exit 1
+fi
+sudo pacman --noconfirm -Uv mpdpopm-bin-${version}-1-x86_64.pkg.tar.zst
+mppopm --version
+mppopm --help
+test -f /usr/share/info/mpdpopm.info.gz
+grep -F 'mpdpopm' /usr/share/info/dir
+sudo pacman --noconfirm -R mpdpopm-bin

@@ -1,15 +1,17 @@
+# Maintainer: Michael <sp1ff at pobox dot com>
 pkgname=@PACKAGE_NAME@
 pkgver=@PACKAGE_VERSION@
 pkgrel=1
 pkgdesc='Maintain ratings & playcounts for your mpd server'
 url=https://github.com/sp1ff/mpdpopm
 arch=('x86_64')
-license=('GPL3')
+license=('GPL-3.0-or-later')
+depends=("gcc-libs" "glibc")
 source=(mpdpopm-@PACKAGE_VERSION@.tar.gz)
 
 build() {
   cd "${pkgname}-${pkgver}"
-  ./configure --prefix=/usr/local
+  ./configure --prefix=/usr
   make
 }
 

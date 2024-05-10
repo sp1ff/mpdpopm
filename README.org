@@ -2,7 +2,7 @@
 #+AUTHOR: Michael Herstine
 #+DESCRIPTION: mpdpopm
 #+EMAIL: sp1ff@pobox.com
-#+DATE: <2023-12-28 Thu 18:23>
+#+DATE: <2024-05-09 Thu 21:10>
 #+AUTODATE: t
 
 * Introduction
@@ -101,15 +101,7 @@ The binaries will be placed in =/usr/local/bin=, and you can proceed to [[#getti
 
 ** Use the Arch package
 
-If you're running on an Arch-based Linux distribution, and you're on an x86_64 processor, I've begun providing a Arch binary package. Just do:
-
-#+BEGIN_SRC bash
-cd /tmp
-curl -L -O https://github.com/sp1ff/mpdpopm/releases/download/0.3.2/mpdpopm_0.3.2-1-x86_64.pkg.tar.zst
-sudo pacman -U mpdpopm_0.3.2-1-x86_64.pkg.tar.zst
-#+END_SRC
-
-The binaries will be placed in =/usr/local/bin=, and you can proceed to [[#getting_started][Getting Started]], below.
+If you're running on an Arch-based Linux distribution, I'm in the process of submitting packages to the [[https://aur.archlinux.org/][AUR]].
 
 ** Autotools source distributions
 

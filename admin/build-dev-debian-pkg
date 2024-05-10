@@ -20,7 +20,6 @@ tarball=${here}/$1
 docker_args="-it"
 docker_args="$docker_args -v ${script}:/build-dev-pkg:ro"
 docker_args="$docker_args -v ${tarball}:/$1:ro"
-docker_args="$docker_args -v ${license}:/LICENSE"
 docker_args="$docker_args --mount type=bind,source=${here},target=/mpdpopm"
 docker_args="$docker_args --privileged"
 docker_args="$docker_args --ulimit core=-1"

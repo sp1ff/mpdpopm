@@ -1,16 +1,27 @@
 #!/bin/bash
 
+# This script is presumably mounted into the build container, with an argument
+# of the tarball to be used for the package.
+
 set -ex
 base="$(basename $1 .tar.gz)"
 version="${base:8}"
 cp -v /$1 /tmp
 cp -v /PKGBUILD /tmp
 cd /tmp
-makepkg -g >> PKGBUILD
+updpkgsums PKGBUILD
+namcap PKGBUILD | tee /tmp/namcap.$$.log
 makepkg
+namcap mpdpopm-${version}-1-x86_64.pkg.tar.zst | tee -a /tmp/namcap.$$.log
+pacman -Qlp mpdpopm-${version}-1-x86_64.pkg.tar.zst
+pacman -Qip mpdpopm-${version}-1-x86_64.pkg.tar.zst
+if grep -F ' E: ' /tmp/namcap.$$.log; then
+    echo "There were errors and/or warnings from namcap:"
+    cat /tmp/namcap.$$.log
+    exit 1
+fi
 sudo pacman --noconfirm -Uv mpdpopm-${version}-1-x86_64.pkg.tar.zst
 mppopm --version
 mppopm --help
-test -f /usr/local/share/info/mpdpopm.info.gz
+test -f /usr/share/info/mpdpopm.info.gz
 sudo pacman --noconfirm -R mpdpopm
-cp -v mpdpopm-${version}-1-x86_64.pkg.tar.zst /mpdpopm

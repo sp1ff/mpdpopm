@@ -1,1 +1,2 @@
 SUBDIRS = mpdpopm doc
+EXTRA_DIST = LICENSE

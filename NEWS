@@ -11,6 +11,8 @@ mpdpopm News -- history of user-visible changes           -*- outline -*-
 *** User-visible changes
 
 **** If HOME isn't set, look for .mppopm in /
+**** [#6] Removed the Arch package from the build & start publishing them to the AUR
+**** Add LICENSE to the distribution
 ** 0.3.2 build
 
 *** Bugfixes

@@ -10,7 +10,6 @@ ENV DEBIAN_FRONTEND=${DEBIAN_FRONTEND:-noninteractive}
 RUN set -ex && \
     echo "Installing pre-requisites..." && \
     apt-get update && \
-    apt-get upgrade && \
     apt-get install -y --no-install-recommends \
     # Wow... \
     ca-certificates \

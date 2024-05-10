@@ -10,6 +10,5 @@ configure
 Makefile
 config.log
 config.status
-PKGBUILD
 *.deb
 *.zst

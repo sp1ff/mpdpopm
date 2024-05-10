@@ -1,4 +1,4 @@
-AC_INIT([mpdpopm], [0.3.2], [sp1ff@pobox.com], [mpdpopm], [https://github.com/sp1ff/mpdpopm])
+AC_INIT([mpdpopm], [0.3.3], [sp1ff@pobox.com], [mpdpopm], [https://github.com/sp1ff/mpdpopm])
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_SRCDIR([mpdpopm/Cargo.toml.in])
 AM_INIT_AUTOMAKE([-Wall -Werror -Wno-portability -Wno-override gnits std-options dist-xz dist-zstd])
@@ -25,7 +25,7 @@ dnl Ditto for etc/mppopmd.conf.am.in and etc/mppopmd.service.am.in
 AC_CONFIG_FILES([mpdpopm/src/vars.rs.am])
 AC_CONFIG_FILES([mpdpopm/mppopmd.conf.am:etc/mppopmd.conf.am.in])
 AC_CONFIG_FILES([mpdpopm/mppopmd.service.am:etc/mppopmd.service.am.in])
-AC_CONFIG_FILES([PKGBUILD:admin/PKGBUILD.in])
+AC_CONFIG_FILES([admin/PKGBUILD])
 AC_CONFIG_FILES([Makefile mpdpopm/Makefile mpdpopm/Cargo.toml])
 AC_CONFIG_FILES([doc/Makefile])
 
