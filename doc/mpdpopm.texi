@@ -52,7 +52,7 @@ This document was typeset with
 @node Top
 @top mpdpopm
 
-Maintain ratings & playcounts for your mpd server..
+Maintain ratings & playcounts for your mpd server.
 
 This manual corresponds to mpdpopm version @value{VERSION}.
 
@@ -105,8 +105,8 @@ prerequisites depend on the distribution format, but in any event you
 need to have @code{MPD} installed & running in order to use
 @code{mpdpopm}. See also @ref{Setting up mpd}.
 
-The pre-built binary distribution, the Debian package, and the Arch
-binary package require no other pre-requisites.
+The pre-built binary distribution, the Debian package, and the Arch User
+Repository packages require no other pre-requisites.
 
 Downloading @code{mpdpopm} from @url{https://crates.io/crates/mpdpopm,
 crates.io} requires the Rust toolchain.
@@ -138,7 +138,7 @@ Pre-built binaries are available for Linux & MacOS.
 There is a binary package available for x86_64 Debian-based Linux systems.
 
 @item
-There is a binary package available for x86_64 Arch-based Linux systems.
+There are Arch packages available at the @url{https://aur.archlinux.org/packages?O=0&K=mpdpopm, Arch User Repository}.
 
 @item
 There is an Autotools-based distribution available.
@@ -185,7 +185,7 @@ play counts, last played and ratings) is MPD
 stickers}. A sticker is a little bit of textual information which
 clients can attach to songs in the form of a name-value
 pair. @code{mpdpopm} defines a new sticker name (again configurable)
-for each of these items & udpates the values for each song when & as
+for each of these items & updates the values for each song when & as
 requested.
 
 Of course, other MPD clients will not, in general, be aware of
@@ -270,7 +270,7 @@ file. The default value is 6600.
 @code{local_music_dir} The root of your MPD music directory, as seen
 from this host. This will be used to evaluate the @code{%full-file}
 and @code{%current-file} replacement parameters when executing
-commands (on which more @pxref{Keeping Your Tags Up-to-date, below}).
+commands (@pxref{Keeping Your Tags Up-to-date, below}).
 
 @item
 @code{log} The file to which the daemon will log when running in the
@@ -323,8 +323,7 @@ play count is incremented; this should be an absolute path. Use
 @code{playcount_command_args} to specify arguments to this
 command. The intent behind this feature is to enable the user to keep
 other data stores (such as ID3 tags) up-to-date with play count
-information (on which more @pxref{Keeping Your Tags Up-to-date,
-below})
+information (@pxref{Keeping Your Tags Up-to-date, below})
 
 @item
 @code{playcount_command_args} An array of arguments to specify to the
@@ -370,7 +369,7 @@ suggest starting it with the @option{-v} flag ("verbose") the first
 time, as well (there's also a @option{-d} flag which will produce more
 copious debug output). You should expect to see something like this:
 
-@example
+@smallexample
 mppopmd -v -F -c <path to configuration file>
 [2020-12-12T15:26:19.620806454-08:00][mppopmd] mppopmd 0.2.2 logging at level Debug.
 [2020-12-12T15:26:19.621395828-08:00][mpdpopm] mpdpopm 0.2.2 beginning.
@@ -393,13 +392,13 @@ mppopmd -v -F -c <path to configuration file>
 )
 [2020-12-12T15:26:19.628778521-08:00][mpdpopm] No database update needed
 [2020-12-12T15:26:19.628817190-08:00][mpdpopm] No more commands to process.
-@end example
+@end smallexample
 
 At this point @code{mppopmd} is just sitting around, waiting for
 something to happen. Bring up your favorite MPD client & start playing
 a track. That should induce some activity:
 
-@example
+@smallexample
 [2020-12-12T15:26:29.522581696-08:00][mpdpopm::clients] Sent idle message; got `changed: player
 OK
 '.
@@ -417,7 +416,7 @@ OK
 [2020-12-12T15:28:19.868244915-08:00][mpdpopm::clients] Sent `sticker set song "M/Miles Davis - Boplicity.mp3" "unwoundstack.com:playcount" "4"'; got `OK
 '
 ...
-@end example
+@end smallexample
 
 In this example, @code{mppopmd} noticed that "Boplicity" by Miles
 Davis started playing; when it was played 60% of the way through, the
@@ -426,7 +425,8 @@ timestamp.
 
 Once things seem to be working, you might consider removing the
 @option{-F} flag & running @code{mppopmd} as a proper
-daemon. @code{mpdopm} ships with a sample systemd unit.
+daemon. @code{mpdpopm} ships with a sample systemd unit if you'd like to
+run it that way.
 
 @node Setting up mppopm
 @subsection Setting up mppopm
@@ -632,7 +632,7 @@ Having accumulated play counts, ratings &c in one's sticker database
 one can now begin acting on that information. For instance, here is a
 bash shell script to add all un-rated songs to the play queue:
 
-@example
+@smallexample
 exec 3<>/dev/tcp/localhost/6600;
 head -1 <&3
 
@@ -683,7 +683,7 @@ exec 3<&-
 echo "command_list_end" >&4
 head -1 <&4
 exec 4<&-
-@end example
+@end smallexample
 
 In search of a more ergonomic way to make use of this information,
 @code{mpdpopm} now has support for
@@ -728,7 +728,7 @@ The @code{mpdpopm} filter syntax is a (small) superset of the MPD
 syntax}. The following is a grammar for filter expressions in
 modified BNF:
 
-@example
+@smallexample
 <expr> ::= <term> | <negation> | <conjunction> | <disjunction>
            
 <term> ::= "(" <comparison> ")"
@@ -780,7 +780,7 @@ modified BNF:
 
 <date-or-epoch> ::= either <number> or a single- or double-quoted ISO
                     8601 timestamp
-@end example
+@end smallexample
 
 In the above grammar, the non-terminals @code{<samplerate>},
 @code{<bits>}, and @code{<channels>} are undefined; please see the MPD
@@ -971,9 +971,9 @@ This contains spaces, so we wrap it in double-quotes and escape all
 special characters therein, giving us the final message as it would
 appear on the wire:
 
-@example
+@smallexample
 sendmessage unwoundstack.com:commands "findadd \"(artist =~ \\\'foo\\\\\\\'bar\\\')\""
-@end example
+@end smallexample
 
 See also
 @url{https://github.com/MusicPlayerDaemon/MPD/blob/master/src/util/Tokenizer.cxx#L170,
@@ -1064,10 +1064,10 @@ to keep his ID3 tags up-to-date. The following two lines, placed
 in the @code{mppopmd} configuration file, will cause it to invoke
 the command @command{/home/sp1ff/bin/scribbu popm -a -A -b -o sp1ff@@pobox.com -C %playcount %full-file} every time it updates the play count sticker:
 
-@lisp
+@smalllisp
 (playcount_command . "/home/sp1ff/bin/scribbu")
 (playcount_command_args . ("popm" "-a" "-A" "-b" "-o" "sp1ff@@pobox.com" "-C" "%playcount" "%full-file"))
-@end lisp
+@end smalllisp
 
 The tokens @code{%playcount} & @code{%full-file} will be replaced with
 the new play count and the absolute path to the file backing the
@@ -1094,10 +1094,10 @@ like this:
               (update . TrackOnly)))
 @end lisp
 
-will define a new command ``set-genre'', with two parameters, the
-second of which can be omitted (it will default to the current
-track). When =mppopmd= receives this command (i.e. when a client says
-something like:
+will define a new command ``set-genre'', with two parameters, the second
+of which can be omitted (it will default to the current track). When
+@code{mppopmd} receives this command; i.e. when a client says something
+like:
 
 @example
 sendmessage unwoundstack.com:commands "set-genre Rock"
@@ -1167,7 +1167,7 @@ database, respectively.
 @node Sample Configuration File
 @chapter Sample Configuration File
 
-@lisp
+@smalllisp
 ((log . "/home/mgh/var/log/mppopmd.log")
  (host . "192.168.1.6")
  (port . 6600)
@@ -1202,7 +1202,7 @@ database, respectively.
              (args . ("xtag" "-m" "-o" "sp1ff@@pobox.com" "-T" "%1" "%full-file"))
              (update . TrackOnly)))))
 
-@end lisp
+@end smalllisp
 
 @node Index
 @unnumbered Index
