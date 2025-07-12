@@ -51,9 +51,9 @@
 use crate::clients::{Client, IdleClient, PlayerStatus};
 use crate::commands::{GeneralizedCommand, PinnedTaggedCmdFuture};
 use crate::filters::ExpressionParser;
-use crate::filters_ast::{evaluate, FilterStickerNames};
+use crate::filters_ast::{FilterStickerNames, evaluate};
 use crate::playcounts::{set_last_played, set_play_count};
-use crate::ratings::{set_rating, RatedTrack, RatingRequest};
+use crate::ratings::{RatedTrack, RatingRequest, set_rating};
 
 use backtrace::Backtrace;
 use boolinator::Boolinator;
@@ -133,17 +133,34 @@ impl std::fmt::Display for Error {
             Error::NoClosingQuotes => write!(f, "Missing closing quotes"),
             Error::NoCommand => write!(f, "No command specified"),
             Error::NotImplemented { feature } => write!(f, "`{}' not implemented, yet", feature),
-            Error::PlayerStopped => write!(f, "Can't operate on the current track when the player is stopped"),
+            Error::PlayerStopped => write!(
+                f,
+                "Can't operate on the current track when the player is stopped"
+            ),
             Error::TrailingBackslash => write!(f, "Trailing backslash"),
-            Error::UnknownChannel {chan, back: _ } => write!(f, "We received messages for an unknown channel `{}'; this is likely a bug; please consider filing a report to sp1ff@pobox.com", chan),
-            Error::UnknownCommand {name, back: _ } => write!(f, "We received an unknown message ``{}''", name),
-            Error::Client { source, back: _ } => write!(f, "Client error: {}", source), 
+            Error::UnknownChannel { chan, back: _ } => write!(
+                f,
+                "We received messages for an unknown channel `{}'; this is likely a bug; please consider filing a report to sp1ff@pobox.com",
+                chan
+            ),
+            Error::UnknownCommand { name, back: _ } => {
+                write!(f, "We received an unknown message ``{}''", name)
+            }
+            Error::Client { source, back: _ } => write!(f, "Client error: {}", source),
             Error::Ratings { source, back: _ } => write!(f, "Ratings eror: {}", source),
-            Error::Playcount { source, back: _ } => write!(f, "Playcount error: {}", source), 
-            Error::Filter { source, back: _ } => write!(f, "Filter error: {}", source), 
-            Error::Command { source, back: _ } => write!(f, "Command error: {}", source), 
-            Error::Utf8 { source, buf, back: _ } => write!(f, "UTF8 error {} ({:#?})", source, buf), 
-            Error::ExpectedInt { source, text, back: _ } => write!(f, "``{}''L {}", source, text),
+            Error::Playcount { source, back: _ } => write!(f, "Playcount error: {}", source),
+            Error::Filter { source, back: _ } => write!(f, "Filter error: {}", source),
+            Error::Command { source, back: _ } => write!(f, "Command error: {}", source),
+            Error::Utf8 {
+                source,
+                buf,
+                back: _,
+            } => write!(f, "UTF8 error {} ({:#?})", source, buf),
+            Error::ExpectedInt {
+                source,
+                text,
+                back: _,
+            } => write!(f, "``{}''L {}", source, text),
         }
     }
 }
@@ -211,7 +228,7 @@ struct TokenIterator<'a> {
 }
 
 impl<'a> TokenIterator<'a> {
-    pub fn new(slice: &'a mut [u8]) -> TokenIterator {
+    pub fn new(slice: &'a mut [u8]) -> TokenIterator<'a> {
         let input = match slice.iter().position(|&x| x > 0x20) {
             Some(n) => n,
             None => slice.len(),
@@ -294,8 +311,8 @@ impl<'a> Iterator for TokenIterator<'a> {
 #[cfg(test)]
 mod tokenize_tests {
 
-    use super::tokenize;
     use super::Result;
+    use super::tokenize;
 
     #[test]
     fn tokenize_smoke() {

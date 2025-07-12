@@ -41,7 +41,7 @@
 //! track.
 
 use crate::clients::Client;
-use crate::commands::{spawn, PinnedTaggedCmdFuture, TaggedCommandFuture};
+use crate::commands::{PinnedTaggedCmdFuture, TaggedCommandFuture, spawn};
 
 use backtrace::Backtrace;
 
@@ -151,7 +151,7 @@ impl std::convert::TryFrom<&str> for RatingRequest {
         };
 
         // Rating first-- the desired rating can be specified in a few ways...
-        let rating = if rating.len() == 0 {
+        let rating = if rating.is_empty() {
             // an empty string is interpreted as zero:
             0u8
         } else {
@@ -171,7 +171,7 @@ impl std::convert::TryFrom<&str> for RatingRequest {
         };
 
         // Next-- track. This, too, can be given in a few ways:
-        let track = if track.len() == 0 {
+        let track = if track.is_empty() {
             // nothing at all just means "current track"
             RatedTrack::Current
         } else {
@@ -254,7 +254,7 @@ pub async fn set_rating<I: Iterator<Item = String>>(
         })?;
 
     // This isn't the best way to indicate "no command"; should take an Option, instead
-    if cmd.len() == 0 {
+    if cmd.is_empty() {
         return Ok(None);
     }
     let mut params = HashMap::<String, String>::new();

@@ -1265,7 +1265,7 @@ pub struct IdleClient {
 
 impl IdleClient {
     /// Create a new [mpdpopm::client::IdleClient][IdleClient] instance from something that
-    /// implements [ToSocketAddrs][tokio::net::ToSocketAddrs]
+    /// implements [ToSocketAddrs]
     pub async fn connect<A: ToSocketAddrs>(addr: A) -> Result<IdleClient> {
         Self::new(MpdConnection::<TcpStream>::new(addr).await?)
     }

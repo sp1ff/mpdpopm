@@ -14,7 +14,6 @@ cd mpdpopm
 cargo clippy --no-deps -- -Dwarnings \
       -A clippy::uninlined-format-args \
       -A clippy::needless-borrow \
-      -A clippy::len-zero \
       -A clippy::manual-unwrap-or-default \
       -A clippy::useless-conversion \
       -A clippy::manual-unwrap-or \
@@ -36,12 +35,8 @@ cargo clippy --no-deps -- -Dwarnings \
       -A clippy::empty-line-after-outer-attr \
       -A clippy::doc-lazy-continuation \
       -A clippy::redundant-field-names \
-      -A elided-named-lifetimes \
       -A clippy::empty-line-after-doc-comments \
-      -A clippy::map-clone \
       -A clippy::useless-format \
       -A clippy::needless-option-as-deref \
       -A clippy::redundant-closure
-# RUSTDOCFLAGS=-Dwarnings
-cargo doc --no-deps
-
+RUSTDOCFLAGS=-Dwarnings cargo doc --no-deps

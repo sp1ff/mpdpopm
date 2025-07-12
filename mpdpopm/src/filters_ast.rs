@@ -217,9 +217,11 @@ mod smoke_tests {
     fn test_conditions() {
         assert!(TermParser::new().parse("base 'foo'").is_ok());
         assert!(TermParser::new().parse("artist == 'foo'").is_ok());
-        assert!(TermParser::new()
-            .parse(r#"artist =~ "foo bar \"splat\"!""#)
-            .is_ok());
+        assert!(
+            TermParser::new()
+                .parse(r#"artist =~ "foo bar \"splat\"!""#)
+                .is_ok()
+        );
         assert!(TermParser::new().parse("artist =~ 'Pogues'").is_ok());
 
         match *TermParser::new()
@@ -254,20 +256,26 @@ mod smoke_tests {
     fn test_expressions() {
         assert!(ExpressionParser::new().parse("( base 'foo' )").is_ok());
         assert!(ExpressionParser::new().parse("(base \"foo\")").is_ok());
-        assert!(ExpressionParser::new()
-            .parse("(!(artist == 'value'))")
-            .is_ok());
-        assert!(ExpressionParser::new()
-            .parse(r#"((!(artist == "foo bar")) AND (base "/My Music"))"#)
-            .is_ok());
+        assert!(
+            ExpressionParser::new()
+                .parse("(!(artist == 'value'))")
+                .is_ok()
+        );
+        assert!(
+            ExpressionParser::new()
+                .parse(r#"((!(artist == "foo bar")) AND (base "/My Music"))"#)
+                .is_ok()
+        );
     }
 
     #[test]
     fn test_quoted_expr() {
         eprintln!("test_quoted_expr");
-        assert!(ExpressionParser::new()
-            .parse(r#"(artist =~ "foo\\bar\"")"#)
-            .is_ok());
+        assert!(
+            ExpressionParser::new()
+                .parse(r#"(artist =~ "foo\\bar\"")"#)
+                .is_ok()
+        );
     }
 
     #[test]
@@ -490,7 +498,7 @@ pub fn parse_iso_8601(mut buf: &mut &[u8]) -> Result<i64> {
     let mut hour = 0;
     let mut minute = 0;
     let mut second = 0;
-    if buf.len() != 0 {
+    if !buf.is_empty() {
         let next = peek(buf);
         if next != Some('T') {
             let mut ext_fmt = false;
@@ -504,7 +512,7 @@ pub fn parse_iso_8601(mut buf: &mut &[u8]) -> Result<i64> {
             //   1. we may be done (i.e. buf.len() == 0)
             //   2. we may have the timestamp (peek(buf) => Some('T'))
             //   3. we may have the day (in basic or extended format)
-            if buf.len() != 0 {
+            if !buf.is_empty() {
                 if peek(buf) != Some('T') {
                     if ext_fmt {
                         take1(&mut buf, 1)?;
@@ -515,18 +523,18 @@ pub fn parse_iso_8601(mut buf: &mut &[u8]) -> Result<i64> {
         }
 
         // Parse time: at this point, buf will either be empty or begin with 'T'
-        if buf.len() != 0 {
+        if !buf.is_empty() {
             take1(&mut buf, 1)?;
             // If there's a T, there must at least be an hour
             hour = take2(&mut buf, 2)?;
-            if buf.len() != 0 {
+            if !buf.is_empty() {
                 let mut ext_fmt = false;
                 if peek(buf) == Some(':') {
                     take1(&mut buf, 1)?;
                     ext_fmt = true;
                 }
                 minute = take2(&mut buf, 2)?;
-                if buf.len() != 0 {
+                if !buf.is_empty() {
                     if ext_fmt {
                         take1(&mut buf, 1)?;
                     }
@@ -536,7 +544,7 @@ pub fn parse_iso_8601(mut buf: &mut &[u8]) -> Result<i64> {
         }
 
         // At this point, there may be a timezone
-        if buf.len() != 0 {
+        if !buf.is_empty() {
             if peek(buf) == Some('Z') {
                 return Ok(Utc
                     .with_ymd_and_hms(year, month, day, hour, minute, second)
@@ -560,7 +568,7 @@ pub fn parse_iso_8601(mut buf: &mut &[u8]) -> Result<i64> {
                 let hours: i32 = take2(&mut buf, 2)?;
                 let mut minutes = 0;
 
-                if buf.len() > 0 {
+                if !buf.is_empty() {
                     if peek(buf) == Some(':') {
                         take1(&mut buf, 1)?;
                     }
@@ -1144,8 +1152,8 @@ mod evaluation_tests {
     use super::*;
     use crate::filters::*;
 
-    use crate::clients::test_mock::Mock;
     use crate::clients::Client;
+    use crate::clients::test_mock::Mock;
 
     #[tokio::test]
     async fn smoke() {

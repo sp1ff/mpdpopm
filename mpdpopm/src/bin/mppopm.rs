@@ -27,15 +27,15 @@
 //! for `mppopmd`. Run `mppopm --help` for detailed usage.
 
 use mpdpopm::{
-    clients::{quote, Client, PlayerStatus},
+    clients::{Client, PlayerStatus, quote},
     playcounts::{get_last_played, get_play_count},
     ratings::get_rating,
 };
 
 use backtrace::Backtrace;
-use clap::{value_parser, Arg, ArgAction, Command};
+use clap::{Arg, ArgAction, Command, value_parser};
 use lazy_static::lazy_static;
-use log::{debug, info, trace, LevelFilter};
+use log::{LevelFilter, debug, info, trace};
 use log4rs::{
     append::console::{ConsoleAppender, Target},
     config::{Appender, Root},
@@ -179,7 +179,7 @@ async fn map_tracks<'a, Iter: Iterator<Item = &'a String>>(
     args: Option<Iter>,
 ) -> Result<Vec<String>> {
     let files = match args {
-        Some(iter) => iter.map(|x| x.clone()).collect(),
+        Some(iter) => iter.cloned().collect(),
         None => {
             let file = match client.status().await.map_err(|err| Error::Client {
                 source: err,

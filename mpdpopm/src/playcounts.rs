@@ -26,7 +26,7 @@
 //!
 
 use crate::clients::{Client, PlayerStatus};
-use crate::commands::{spawn, TaggedCommandFuture};
+use crate::commands::{TaggedCommandFuture, spawn};
 
 use backtrace::Backtrace;
 use log::{debug, info};
@@ -137,7 +137,7 @@ pub async fn set_play_count<I: Iterator<Item = String>>(
             back: Backtrace::new(),
         })?;
 
-    if cmd.len() == 0 {
+    if cmd.is_empty() {
         return Ok(None);
     }
 
