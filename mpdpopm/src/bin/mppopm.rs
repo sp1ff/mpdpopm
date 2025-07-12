@@ -563,7 +563,7 @@ The last played timestamp is expressed in seconds since Unix epoch.",
             .arg(Arg::new("last-played").index(1).required(true))
             .arg(Arg::new("track").index(2)),
     )
-    .subcommand(Command::new("get-playlists").about("retreive the list of stored playlists"))
+    .subcommand(Command::new("get-playlists").about("retrieve the list of stored playlists"))
     .subcommand(
         Command::new("findadd")
             .about("search case-sensitively for songs matching matching a filter and add them to the queue")
