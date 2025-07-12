@@ -1,0 +1,47 @@
+#!/bin/bash
+set -x
+
+here=$(dirname $(realpath $0))
+cd $here/..
+
+if rg -t rust 'TODO|TOOD|LATER|IN-?PROGRESS|\\todo|todo!|dbg!'; then
+    echo "You have TODO-s"
+    exit 1
+fi
+
+set -e
+cd mpdpopm
+cargo clippy --no-deps -- -Dwarnings \
+      -A clippy::uninlined-format-args \
+      -A clippy::needless-borrow \
+      -A clippy::len-zero \
+      -A clippy::manual-unwrap-or-default \
+      -A clippy::useless-conversion \
+      -A clippy::manual-unwrap-or \
+      -A clippy::needless-question-mark \
+      -A clippy::manual-strip \
+      -A clippy::too-many-arguments \
+      -A clippy::mem-replace-with-default \
+      -A clippy::needless-lifetimes \
+      -A clippy::borrow-deref-ref \
+      -A clippy::manual-while-let-some \
+      -A clippy::unnecessary-cast \
+      -A clippy::unnecessary-get-then-check \
+      -A clippy::collapsible-else-if \
+      -A clippy::collapsible-if \
+      -A clippy::ptr-arg \
+      -A clippy::clone-on-copy \
+      -A clippy::while-let-loop \
+      -A clippy::new-ret-no-self \
+      -A clippy::empty-line-after-outer-attr \
+      -A clippy::doc-lazy-continuation \
+      -A clippy::redundant-field-names \
+      -A elided-named-lifetimes \
+      -A clippy::empty-line-after-doc-comments \
+      -A clippy::map-clone \
+      -A clippy::useless-format \
+      -A clippy::needless-option-as-deref \
+      -A clippy::redundant-closure
+# RUSTDOCFLAGS=-Dwarnings
+cargo doc --no-deps
+
