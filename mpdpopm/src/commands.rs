@@ -121,9 +121,9 @@ use crate::clients::PlayerStatus;
 
 use backtrace::Backtrace;
 use futures::future::Future;
-use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
+use tracing::{debug, info};
 
 use std::collections::HashMap;
 use std::ffi::OsStr;

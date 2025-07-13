@@ -29,7 +29,7 @@ use crate::clients::{Client, PlayerStatus};
 use crate::commands::{TaggedCommandFuture, spawn};
 
 use backtrace::Backtrace;
-use log::{debug, info};
+use tracing::{debug, info};
 
 use std::collections::HashMap;
 use std::path::PathBuf;

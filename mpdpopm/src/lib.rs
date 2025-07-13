@@ -60,12 +60,13 @@ use futures::{
     stream::{FuturesUnordered, StreamExt},
 };
 use libc::getpid;
-use log::{debug, error, info};
 use tokio::{
     signal,
-    signal::unix::{signal, SignalKind},
-    time::{sleep, Duration},
+    signal::unix::{SignalKind, signal},
+    sync::mpsc,
+    time::{Duration, sleep},
 };
+use tracing::{debug, error, info};
 
 use std::path::PathBuf;
 
@@ -115,7 +116,11 @@ pub type Result<T> = std::result::Result<T, Error>;
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// Core `mppopmd' logic
-pub async fn mpdpopm(cfg: Config) -> std::result::Result<(), Error> {
+pub async fn mpdpopm(
+    cfg: Config,
+    // Later, I'll use this to handle SIGHUP properly.
+    _reopen: Option<mpsc::Sender<PathBuf>>,
+) -> std::result::Result<(), Error> {
     let pid = unsafe { getpid() };
     info!("mpdpopm {} beginning (PID {}).", vars::VERSION, pid);
 

@@ -33,10 +33,10 @@
 
 use async_trait::async_trait;
 use backtrace::Backtrace;
-use log::{debug, info};
 use regex::Regex;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpStream, ToSocketAddrs, UnixStream};
+use tracing::{debug, info};
 
 use lazy_static::lazy_static;
 

@@ -31,23 +31,24 @@ use mpdpopm::mpdpopm;
 use mpdpopm::vars::LOCALSTATEDIR;
 
 use backtrace::Backtrace;
-use clap::{value_parser, Arg, ArgAction, Command};
+use clap::{Arg, ArgAction, Command, value_parser};
 use errno::errno;
 use lazy_static::lazy_static;
 use libc::{
-    close, dup, exit, fork, getdtablesize, getpid, lockf, open, setsid, umask, write, F_TLOCK,
+    F_TLOCK, close, dup, exit, fork, getdtablesize, getpid, lockf, open, setsid, umask, write,
 };
-use log::{info, LevelFilter};
-use log4rs::{
-    append::{
-        console::{ConsoleAppender, Target},
-        file::FileAppender,
-    },
-    config::{Appender, Root},
-    encode::pattern::PatternEncoder,
-};
+use tokio::sync::mpsc;
+use tracing::{error, info, level_filters::LevelFilter};
+use tracing_subscriber::{EnvFilter, Layer, Registry, fmt::MakeWriter, layer::SubscriberExt};
 
-use std::{ffi::CString, fmt, path::PathBuf};
+use std::{
+    ffi::CString,
+    fmt,
+    fs::OpenOptions,
+    io,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex, MutexGuard},
+};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                 mppopmd application Error type                                 //
@@ -59,6 +60,10 @@ pub enum Error {
     NoConfig {
         config: std::path::PathBuf,
         cause: std::io::Error,
+    },
+    Filter {
+        source: tracing_subscriber::filter::FromEnvError,
+        back: Backtrace,
     },
     Fork {
         errno: errno::Errno,
@@ -81,10 +86,6 @@ pub enum Error {
     },
     Config {
         source: crate::config::Error,
-        back: Backtrace,
-    },
-    Logging {
-        source: log::SetLoggerError,
         back: Backtrace,
     },
     MpdPopm {
@@ -113,7 +114,6 @@ impl std::fmt::Display for Error {
                 write!(f, "While writing pid file, got errno {}", errno)
             }
             Error::Config { source, back: _ } => write!(f, "Configuration error: {}", source),
-            Error::Logging { source, back: _ } => write!(f, "Logging error: {}", source),
             Error::MpdPopm { source, back: _ } => write!(f, "mpdpopm error: {}", source),
             _ => write!(f, "Unknown mppopmd error"),
         }
@@ -128,8 +128,92 @@ impl fmt::Debug for Error {
 
 type Result = std::result::Result<(), Error>;
 
+type StdResult<T, E> = std::result::Result<T, E>;
+
 lazy_static! {
     static ref DEF_CONF: String = format!("{}/mppopmd.conf", mpdpopm::vars::SYSCONFDIR);
+}
+
+/// A tracing-compatible, "reopenable" log file
+///
+/// I need a thing that implements [MakeWriter] to hand-off to a tracing [Layer]. [MakeWriter], in
+/// turn, returns a thing that implements [std::io::Write] that is valid for some lifetime 'a.
+///
+/// Now, [MakeWriter] is implemented on `Arc<W>` or `Mutex<W>` for any `W` that implements
+/// [std::io::Write]. The problem is, `Arc<Mutex<W>>` does *not* implement [MakeWriter], even if `W`
+/// implements [std::io::Write].
+///
+/// I could only see two approaches; hand the [Layer] a reference to the thing and keep a reference
+/// for myself, and invoke a method on the thing in response to a `SIGHUP`, or hand the thing off to
+/// the [Layer] in toto and use some side-band communications channel to tell it to re-open the file
+/// in response to a `SIGHUP`.
+///
+/// I've for the moment gone with the latter since the former would require me to somehow have the
+/// thing implement [std::io::Write] *and* be thread-safe.
+struct LogFile {
+    fd: Arc<Mutex<std::fs::File>>,
+}
+
+impl LogFile {
+    /// Open a file at `pth`; return a [LogFile] instance along with the send side of a channel
+    /// the caller can use to close & re-open the file.
+    pub fn open<P: AsRef<Path>>(
+        pth: P,
+    ) -> StdResult<(LogFile, mpsc::Sender<PathBuf>), std::io::Error> {
+        let (tx, rx) = mpsc::channel::<PathBuf>(1);
+        let fd = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(pth)
+            .map(|fd| Arc::new(Mutex::new(fd)))?;
+        tokio::spawn(LogFile::rehup(fd.clone(), rx));
+        Ok((LogFile { fd }, tx))
+    }
+    /// Close & re-open the file
+    async fn rehup(fd: Arc<Mutex<std::fs::File>>, mut rx: mpsc::Receiver<PathBuf>) {
+        while let Some(ref pbuf) = rx.recv().await {
+            match OpenOptions::new().create(true).append(true).open(pbuf) {
+                Ok(f) => *fd.lock().unwrap() = f,
+                Err(err) => error!("Failed to open {:?} ({}).", pbuf, err),
+            }
+        }
+    }
+}
+
+pub struct MyMutexGuardWriter<'a>(MutexGuard<'a, std::fs::File>);
+
+impl<'a> MakeWriter<'a> for LogFile {
+    type Writer = MyMutexGuardWriter<'a>;
+    fn make_writer(&'a self) -> Self::Writer {
+        MyMutexGuardWriter(self.fd.lock().expect("lock poisoned"))
+    }
+}
+
+impl io::Write for MyMutexGuardWriter<'_> {
+    #[inline]
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.write(buf)
+    }
+
+    #[inline]
+    fn flush(&mut self) -> io::Result<()> {
+        self.0.flush()
+    }
+
+    #[inline]
+    fn write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
+        self.0.write_vectored(bufs)
+    }
+
+    #[inline]
+    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+        self.0.write_all(buf)
+    }
+
+    #[inline]
+    fn write_fmt(&mut self, fmt: std::fmt::Arguments<'_>) -> io::Result<()> {
+        self.0.write_fmt(fmt)
+    }
 }
 
 /// Make this process into a daemon
@@ -212,7 +296,7 @@ fn daemonize() -> Result {
         // We next change the present working directory to avoid keeping the present one in
         // use. `mppopmd' can run pretty much anywhere, so /tmp is as good a place as any.
         std::env::set_current_dir("/tmp").unwrap(); // A little unhappy about hard-coding that, but
-                                                    // if /tmp doesn't exist I expect few things will work.
+        // if /tmp doesn't exist I expect few things will work.
 
         umask(0);
 
@@ -364,51 +448,58 @@ commands to keep your tags up-to-date.",
     // `--verbose' & `--debug' work as follows: if `--debug' is present, log at level Trace, no
     // matter what. Else, if `--verbose' is present, log at level Debug. Else, log at level Info.
     let lf = match (matches.get_flag("verbose"), matches.get_flag("debug")) {
-        (_, true) => LevelFilter::Trace,
-        (true, false) => LevelFilter::Debug,
-        _ => LevelFilter::Info,
+        (_, true) => LevelFilter::TRACE,
+        (true, false) => LevelFilter::DEBUG,
+        _ => LevelFilter::INFO,
     };
 
-    // If we're not running as a daemon...
-    if matches.get_flag("no-daemon") {
-        // log to stdout & let our caller redirect that.
-        let app = ConsoleAppender::builder()
-            .target(Target::Stdout)
-            .encoder(Box::new(PatternEncoder::new("[{d}][{M}] {m}{n}")))
-            .build();
-        let lcfg = log4rs::config::Config::builder()
-            .appender(Appender::builder().build("stdout", Box::new(app)))
-            .build(Root::builder().appender("stdout").build(lf))
-            .unwrap();
-        log4rs::init_config(lcfg).map_err(|err| Error::Logging {
+    let filter = EnvFilter::builder()
+        .with_default_directive(lf.into())
+        .from_env()
+        .map_err(|err| Error::Filter {
             source: err,
             back: Backtrace::new(),
         })?;
+
+    let (formatter, reopen): (
+        Box<dyn Layer<Registry> + Send + Sync>,
+        Option<tokio::sync::mpsc::Sender<PathBuf>>,
+    ) = if matches.get_flag("no-daemon") {
+        // If we're not running as a daemon, just log to stdout & let our caller redirect if they
+        // want to.
+        (
+            Box::new(
+                tracing_subscriber::fmt::Layer::default()
+                    .compact()
+                    .with_writer(io::stdout),
+            ),
+            None,
+        )
     } else {
-        // Else, daemonize this process now, before we spin-up the Tokio runtime.
+        // Else, daemonize this process now, before we spin-up the Tokio runtime...
         daemonize()?;
-        // Also, log to file.
-        let app = FileAppender::builder()
-            .encoder(Box::new(PatternEncoder::new("{d}|{M}|{f}|{l}| {m}{n}")))
-            .build(&cfg.log)
-            .unwrap();
-        let lcfg = log4rs::config::Config::builder()
-            .appender(Appender::builder().build("logfile", Box::new(app)))
-            .build(Root::builder().appender("logfile").build(lf))
-            .unwrap();
-        log4rs::init_config(lcfg).map_err(|err| Error::Logging {
-            source: err,
-            back: Backtrace::new(),
-        })?;
-    }
+        let (log_file, tx) = LogFile::open(&cfg.log).unwrap();
+        (
+            Box::new(
+                tracing_subscriber::fmt::Layer::default()
+                    .compact()
+                    .with_ansi(false)
+                    .with_writer(log_file),
+            ),
+            Some(tx),
+        )
+    };
+    tracing::subscriber::set_global_default(Registry::default().with(formatter).with(filter))
+        .unwrap();
 
     // One way or another, we are now the "final" process. Announce ourselves...
-    info!("mppopmd {} logging at level {:#?}.", VERSION, lf);
+    info!("mppopmd {VERSION} logging at level {lf:#?}.");
     // spin-up the Tokio runtime...
     let rt = tokio::runtime::Runtime::new().unwrap();
     // and invoke `mpdpopm'.
-    rt.block_on(mpdpopm(cfg)).map_err(|err| Error::MpdPopm {
-        source: err,
-        back: Backtrace::new(),
-    })
+    rt.block_on(mpdpopm(cfg, reopen))
+        .map_err(|err| Error::MpdPopm {
+            source: err,
+            back: Backtrace::new(),
+        })
 }

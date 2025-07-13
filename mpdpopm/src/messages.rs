@@ -48,16 +48,18 @@
 //! Additional commands may be added through the
 //! [generalized commands](crate::commands#the-generalized-command-framework) feature.
 
-use crate::clients::{Client, IdleClient, PlayerStatus};
-use crate::commands::{GeneralizedCommand, PinnedTaggedCmdFuture};
-use crate::filters::ExpressionParser;
-use crate::filters_ast::{FilterStickerNames, evaluate};
-use crate::playcounts::{set_last_played, set_play_count};
-use crate::ratings::{RatedTrack, RatingRequest, set_rating};
+use crate::{
+    clients::{Client, IdleClient, PlayerStatus},
+    commands::{GeneralizedCommand, PinnedTaggedCmdFuture},
+    filters::ExpressionParser,
+    filters_ast::{FilterStickerNames, evaluate},
+    playcounts::{set_last_played, set_play_count},
+    ratings::{RatedTrack, RatingRequest, set_rating},
+};
 
 use backtrace::Backtrace;
 use boolinator::Boolinator;
-use log::debug;
+use tracing::debug;
 
 use std::collections::{HashMap, VecDeque};
 use std::convert::TryFrom;

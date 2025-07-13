@@ -35,13 +35,9 @@ use mpdpopm::{
 use backtrace::Backtrace;
 use clap::{Arg, ArgAction, Command, value_parser};
 use lazy_static::lazy_static;
-use log::{LevelFilter, debug, info, trace};
-use log4rs::{
-    append::console::{ConsoleAppender, Target},
-    config::{Appender, Root},
-    encode::pattern::PatternEncoder,
-};
 use serde::{Deserialize, Serialize};
+use tracing::{debug, info, level_filters::LevelFilter, trace};
+use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt};
 
 use std::{fmt, path::PathBuf};
 
@@ -82,10 +78,6 @@ pub enum Error {
         source: std::num::ParseIntError,
         back: Backtrace,
     },
-    Logging {
-        source: log::SetLoggerError,
-        back: Backtrace,
-    },
     Config {
         source: serde_lexpr::Error,
         back: Backtrace,
@@ -109,7 +101,6 @@ impl fmt::Display for Error {
             Error::Ratings { source, back: _ } => write!(f, "Rating error: {}", source),
             Error::Playcounts { source, back: _ } => write!(f, "Playcount error: {}", source),
             Error::ExpectedInt { source, back: _ } => write!(f, "Expected integer: {}", source),
-            Error::Logging { source, back: _ } => write!(f, "Logging error: {}", source),
             Error::Config { source, back: _ } => {
                 write!(f, "Error reading configuration: {}", source)
             }
@@ -765,23 +756,26 @@ async fn main() -> Result<()> {
 
     // Handle log verbosity: debug => verbose
     let lf = match (matches.get_flag("verbose"), matches.get_flag("debug")) {
-        (_, true) => LevelFilter::Trace,
-        (true, false) => LevelFilter::Debug,
-        _ => LevelFilter::Warn,
+        (_, true) => LevelFilter::TRACE,
+        (true, false) => LevelFilter::DEBUG,
+        _ => LevelFilter::WARN,
     };
 
-    let app = ConsoleAppender::builder()
-        .target(Target::Stdout)
-        .encoder(Box::new(PatternEncoder::new("{m}{n}")))
-        .build();
-    let lcfg = log4rs::config::Config::builder()
-        .appender(Appender::builder().build("stdout", Box::new(app)))
-        .build(Root::builder().appender("stdout").build(lf))
-        .unwrap();
-    log4rs::init_config(lcfg).map_err(|err| Error::Logging {
-        source: err,
-        back: Backtrace::new(),
-    })?;
+    tracing::subscriber::set_global_default(
+        Registry::default()
+            .with(
+                tracing_subscriber::fmt::Layer::default()
+                    .compact()
+                    .with_writer(std::io::stdout),
+            )
+            .with(
+                EnvFilter::builder()
+                    .with_default_directive(lf.into())
+                    .from_env()
+                    .unwrap(),
+            ),
+    )
+    .unwrap();
 
     trace!("logging configured.");
 

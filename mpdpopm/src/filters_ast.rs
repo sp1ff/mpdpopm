@@ -22,7 +22,7 @@ use crate::clients::Client;
 use backtrace::Backtrace;
 use boolinator::Boolinator;
 use chrono::prelude::*;
-use log::debug;
+use tracing::debug;
 
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
