@@ -1,4 +1,4 @@
-AC_INIT([mpdpopm], [0.3.3], [sp1ff@pobox.com], [mpdpopm], [https://github.com/sp1ff/mpdpopm])
+AC_INIT([mpdpopm], [0.3.4], [sp1ff@pobox.com], [mpdpopm], [https://github.com/sp1ff/mpdpopm])
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_SRCDIR([mpdpopm/Cargo.toml.in])
 AM_INIT_AUTOMAKE([-Wall -Werror -Wno-portability -Wno-override gnits std-options dist-xz dist-zstd])
