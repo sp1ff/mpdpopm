@@ -1,5 +1,7 @@
 2025-08-05  Michael Herstine  <sp1ff@pobox.com>
 
+	Fix the continuous integration workflow
+
 	Move to Snafu, for clients.rs, at least.
 	This patch is a first step toward moving to Snafu for mpdpopm
 	error handling. I'm primarily interested in getting more trouble-
