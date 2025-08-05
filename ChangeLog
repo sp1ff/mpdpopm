@@ -1,3 +1,36 @@
+2025-08-05  Michael Herstine  <sp1ff@pobox.com>
+
+	Move to Snafu, for clients.rs, at least.
+	This patch is a first step toward moving to Snafu for mpdpopm
+	error handling. I'm primarily interested in getting more trouble-
+	shooting data for issue 11, and the error seems to originate
+	in this module. More updates to follow after a quick release.
+
+2025-07-12  Michael Herstine  <sp1ff@pobox.com>
+
+	Move from `log4rs` to `tracing` for logging.
+	This patch moves mpdpopm over to the `tracing` crate from `log4rs`.
+	It also clears out a few more lints exposed by the new signoff
+	script.
+
+	This commit should perhaps be squashed with the next; since that
+	commit will involve moving over to `snafu` for error handling,
+	I handled several points-of-failure in this commit with `unwrap()`.
+
+2025-07-12  Michael Herstine  <sp1ff@pobox.com>
+
+	Cleanup some lints.
+	Cleaned-up several lints flagged by clippy & `cargo doc`. The latter
+	now runs cleanly.
+
+	Add a signoff script.
+	This patch contains a "signoff" script, meant to be run locally
+	by the developer after committing, but before pushing.
+
+2025-07-11  Michael Herstine  <sp1ff@pobox.com>
+
+	Fix a small typo in the mppopm options documentation
+
 2024-05-16  Michael Herstine  <sp1ff@pobox.com>
 
 	Fix several documentation typos.

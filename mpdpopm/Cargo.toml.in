@@ -31,7 +31,8 @@ pin-project = "1.0"
 regex = "1.3"
 serde = { version = "1.0", features = ["derive"] }
 serde-lexpr = "0.1.1"
-toml = "0.8" # Pin to preserve the ability to build with rust 1.65
+snafu = { version = "0.8.6", features = ["backtrace"] }
+toml = "0.8"
 tokio = { version = "1.35", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"]}

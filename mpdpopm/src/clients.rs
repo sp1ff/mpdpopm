@@ -32,8 +32,8 @@
 //! [mpdfav](https://github.com/vincent-petithory/mpdfav)).
 
 use async_trait::async_trait;
-use backtrace::Backtrace;
 use regex::Regex;
+use snafu::{Backtrace, IntoError, OptionExt, ResultExt, prelude::*};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpStream, ToSocketAddrs, UnixStream};
 use tracing::{debug, info};
@@ -101,145 +101,40 @@ impl std::fmt::Display for Operation {
 }
 
 /// An MPD client error
-#[derive(Debug)]
+#[derive(Debug, Snafu)]
 #[non_exhaustive]
 pub enum Error {
+    #[snafu(display("Protocol error ({}): {}", op, msg))]
     Protocol {
         op: Operation,
         msg: String,
-        back: backtrace::Backtrace,
+        backtrace: Backtrace,
     },
+    #[snafu(display("Protocol errror ({}): {}", op, source))]
+    ProtocolConv {
+        op: Operation,
+        source: Box<dyn std::error::Error>,
+        backtrace: Backtrace,
+    },
+    #[snafu(display("I/O error: {}", source))]
     Io {
         source: std::io::Error,
-        back: backtrace::Backtrace,
+        backtrace: Backtrace,
     },
+    #[snafu(display("Encoding error: {}", source))]
     Encoding {
+        buf: Vec<u8>,
         source: std::string::FromUtf8Error,
-        back: backtrace::Backtrace,
+        backtrace: Backtrace,
     },
+    #[snafu(display("While converting sticker ``{}'': {}", sticker, source))]
     StickerConversion {
         sticker: String,
-        source: Box<dyn std::error::Error + Send + Sync>,
-        back: backtrace::Backtrace,
+        source: Box<dyn std::error::Error>,
+        backtrace: Backtrace,
     },
-    IdleSubSystem {
-        text: String,
-        back: backtrace::Backtrace,
-    },
-}
-
-impl std::convert::From<std::io::Error> for Error {
-    fn from(err: std::io::Error) -> Self {
-        Error::Io {
-            source: err,
-            back: Backtrace::new(),
-        }
-    }
-}
-
-// Implementation helper: there is a lot of code in this module that reads: "(do thing that returns
-// Option).ok_or_else(|| create an Error::Protocol instance).and then..." This private trait helps
-// make that a bit more succinct. I largely lifted it from Snafu.
-trait OptionExt<T>: Sized {
-    fn context(self, op: Operation, msg: &str) -> std::result::Result<T, Error>;
-}
-
-impl<T> OptionExt<T> for Option<T> {
-    fn context(self, op: Operation, msg: &str) -> std::result::Result<T, Error> {
-        self.ok_or_else(|| Error::Protocol {
-            op: op,
-            msg: String::from(msg), // msg is likely borrowed, sadly
-            back: Backtrace::new(),
-        })
-    }
-}
-
-// This impl lets you change a bool into an Error::Protocol, as well: "(boolean
-// assertion).context(...)"
-impl OptionExt<()> for bool {
-    fn context(self, op: Operation, msg: &str) -> std::result::Result<(), Error> {
-        if self {
-            Ok(())
-        } else {
-            Err(Error::Protocol {
-                op: op,
-                msg: String::from(msg),
-                back: Backtrace::new(),
-            })
-        }
-    }
-}
-
-// Same for Result-s!
-trait ResultExt<T>: Sized {
-    fn context(self, op: Operation, msg: &str) -> std::result::Result<T, Error>;
-}
-
-impl<T, E> ResultExt<T> for std::result::Result<T, E> {
-    fn context(self, op: Operation, msg: &str) -> std::result::Result<T, Error> {
-        self.map_err(|_| Error::Protocol {
-            op: op,
-            msg: String::from(msg),
-            back: Backtrace::new(),
-        })
-    }
-}
-
-impl std::fmt::Display for Error {
-    #[allow(unreachable_patterns)] // the _ arm is *currently* unreachable
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Error::Protocol { op, msg, back: _ } => write!(f, "Protocol error ({}): {}", op, msg),
-            Error::Io { source, back: _ } => write!(f, "I/O error: {}", source),
-            Error::Encoding { source, back: _ } => write!(f, "Encoding error: {}", source),
-            Error::StickerConversion {
-                sticker,
-                source,
-                back: _,
-            } => write!(f, "While converting sticker ``{}'': {}", sticker, source),
-            Error::IdleSubSystem { text, back: _ } => {
-                write!(f, "``{}'' is not a recognized Idle subsystem", text)
-            }
-            _ => write!(f, "Unknown client error"),
-        }
-    }
-}
-
-// Stolen shamelessly from Snafu
-// <https://github.com/shepmaster/snafu/blob/c5255d3ae1e4af1e8b7fd34298f80f9f2399b9fd/src/lib.rs#L991>
-// this trait turns the receiver into an Error trait object.
-pub trait AsErrorSource {
-    /// For maximum effectiveness, this needs to be called as a method
-    /// to benefit from Rust's automatic dereferencing of method
-    /// receivers.
-    fn as_error_source(&self) -> &(dyn std::error::Error + 'static);
-}
-
-impl AsErrorSource for dyn std::error::Error + Send + Sync + 'static {
-    fn as_error_source(&self) -> &(dyn std::error::Error + 'static) {
-        self
-    }
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match &self {
-            Error::Io {
-                ref source,
-                back: _,
-            } => Some(source),
-            Error::Encoding {
-                ref source,
-                back: _,
-            } => Some(source),
-            Error::StickerConversion {
-                sticker: _,
-                ref source,
-                back: _,
-            } => Some(source.as_error_source()),
-            _ => None,
-        }
-    }
+    #[snafu(display("``{}'' is not a recognized Idle subsystem", text))]
+    IdleSubSystem { text: String, backtrace: Backtrace },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -415,7 +310,10 @@ where
         self.req_w_hint(msg, 512).await
     }
     async fn req_w_hint(&mut self, msg: &str, hint: usize) -> Result<String> {
-        self.sock.write_all(format!("{}\n", msg).as_bytes()).await?;
+        self.sock
+            .write_all(format!("{}\n", msg).as_bytes())
+            .await
+            .context(IoSnafu)?;
         let mut buf = Vec::with_capacity(hint);
 
         // Given the request/response nature of the MPD protocol, our callers expect a complete
@@ -424,7 +322,7 @@ where
         let mut cb = 0; // # bytes read so far
         let mut more = true; // true as long as there is more to read
         while more {
-            cb += self.sock.read_buf(&mut buf).await?;
+            cb += self.sock.read_buf(&mut buf).await.context(IoSnafu)?;
 
             // The shortest complete response has three bytes. If the final byte in `buf' is not a
             // newline, then don't bother looking further.
@@ -451,10 +349,8 @@ where
             }
         }
 
-        Ok(String::from_utf8(buf).map_err(|err| Error::Encoding {
-            source: err,
-            back: Backtrace::new(),
-        })?)
+        // Only doing this to trouble-shoot issue 11
+        String::from_utf8(buf.clone()).context(EncodingSnafu { buf })
     }
 }
 
@@ -464,20 +360,23 @@ where
     T: AsyncReadExt + AsyncWriteExt + Send + Unpin,
 {
     let mut buf = Vec::with_capacity(32);
-    let _cb = sock.read_buf(&mut buf).await?;
-    let text = String::from_utf8(buf).map_err(|err| Error::Encoding {
-        source: err,
-        back: Backtrace::new(),
-    })?;
-    text.starts_with("OK MPD ")
-        .context(Operation::Connect, text.trim())?;
+    let _cb = sock.read_buf(&mut buf).await.context(IoSnafu)?;
+    // Only doing this to trouble-shoot issue 11
+    let text = String::from_utf8(buf.clone()).context(EncodingSnafu { buf })?;
+    ensure!(
+        text.starts_with("OK MPD "),
+        ProtocolSnafu {
+            op: Operation::Connect,
+            msg: text.trim()
+        }
+    );
     info!("Connected {}.", text[7..].trim());
     Ok(text[7..].trim().to_string())
 }
 
 impl MpdConnection<TcpStream> {
     pub async fn new<A: ToSocketAddrs>(addr: A) -> Result<Box<dyn RequestResponse>> {
-        let mut sock = TcpStream::connect(addr).await?;
+        let mut sock = TcpStream::connect(addr).await.context(IoSnafu)?;
         let proto_ver = parse_connect_rsp(&mut sock).await?;
         Ok(Box::new(MpdConnection::<TcpStream> {
             sock: sock,
@@ -489,7 +388,7 @@ impl MpdConnection<TcpStream> {
 impl MpdConnection<UnixStream> {
     // NTS: we have to box the return value because a `dyn RequestResponse` isn't Sized.
     pub async fn new<P: AsRef<Path>>(pth: P) -> Result<Box<dyn RequestResponse>> {
-        let mut sock = UnixStream::connect(pth).await?;
+        let mut sock = UnixStream::connect(pth).await.context(IoSnafu)?;
         let proto_ver = parse_connect_rsp(&mut sock).await?;
         Ok(Box::new(MpdConnection::<UnixStream> {
             sock: sock,
@@ -569,7 +468,7 @@ impl Client {
     }
 
     pub fn new(stream: Box<dyn RequestResponse>) -> Result<Client> {
-        Ok(Client { stream: stream })
+        Ok(Client { stream })
     }
 }
 
@@ -582,15 +481,23 @@ impl Client {
         // also don't want to depend on the order.
         let text = self.stream.req("status").await?;
 
+        let proto = || -> Error {
+            ProtocolSnafu {
+                op: Operation::Status,
+                msg: text.to_owned(),
+            }
+            .build()
+        };
+
         // I first thought to avoid the use (and cost) of regular expressions by just doing
         // sub-string searching on "state: ", but when I realized I needed to only match at the
         // beginning of a line I bailed & just went ahead. This makes for more succinct code, since
         // I can't count on order, either.
         let state = RE_STATE
             .captures(&text)
-            .context(Operation::Status, &text)?
+            .ok_or_else(proto)?
             .get(1)
-            .context(Operation::Status, &text)?
+            .ok_or_else(proto)?
             .as_str();
 
         match state {
@@ -598,21 +505,31 @@ impl Client {
             "play" | "pause" => {
                 let songid = RE_SONGID
                     .captures(&text)
-                    .context(Operation::Status, &text)?
+                    .ok_or_else(proto)?
                     .get(1)
-                    .context(Operation::Status, &text)?
+                    .ok_or_else(proto)?
                     .as_str()
                     .parse::<u64>()
-                    .context(Operation::Status, &text)?;
+                    .map_err(|err| {
+                        ProtocolConvSnafu {
+                            op: Operation::Status,
+                        }
+                        .into_error(Box::new(err))
+                    })?;
 
                 let elapsed = RE_ELAPSED
                     .captures(&text)
-                    .context(Operation::Status, &text)?
+                    .ok_or_else(proto)?
                     .get(1)
-                    .context(Operation::Status, &text)?
+                    .ok_or_else(proto)?
                     .as_str()
                     .parse::<f64>()
-                    .context(Operation::Status, &text)?;
+                    .map_err(|err| {
+                        ProtocolConvSnafu {
+                            op: Operation::Status,
+                        }
+                        .into_error(Box::new(err))
+                    })?;
 
                 // navigate from `songid'-- don't send a "currentsong" message-- the current song
                 // could have changed
@@ -620,18 +537,23 @@ impl Client {
 
                 let file = RE_FILE
                     .captures(&text)
-                    .context(Operation::Status, &text)?
+                    .ok_or_else(proto)?
                     .get(1)
-                    .context(Operation::Status, &text)?
+                    .ok_or_else(proto)?
                     .as_str();
                 let duration = RE_DURATION
                     .captures(&text)
-                    .context(Operation::Status, &text)?
+                    .ok_or_else(proto)?
                     .get(1)
-                    .context(Operation::Status, &text)?
+                    .ok_or_else(proto)?
                     .as_str()
                     .parse::<f64>()
-                    .context(Operation::Status, &text)?;
+                    .map_err(|err| {
+                        ProtocolConvSnafu {
+                            op: Operation::Status,
+                        }
+                        .into_error(Box::new(err))
+                    })?;
 
                 let curr = CurrentSong::new(songid, PathBuf::from(file), elapsed, duration);
 
@@ -641,11 +563,11 @@ impl Client {
                     Ok(PlayerStatus::Pause(curr))
                 }
             }
-            _ => Err(Error::Protocol {
+            _ => ProtocolSnafu {
                 op: Operation::Status,
-                msg: state.to_string(),
-                back: Backtrace::new(),
-            }),
+                msg: state.to_owned(),
+            }
+            .fail(),
         }
     }
 
@@ -667,17 +589,25 @@ impl Client {
             let s = text[prefix.len()..]
                 .split('\n')
                 .next()
-                .context(Operation::GetSticker, &msg)?;
-            Ok(Some(T::from_str(s).map_err(|e| {
-                Error::StickerConversion {
-                    sticker: String::from(sticker_name),
-                    source: Box::<dyn std::error::Error + Sync + Send>::from(e),
-                    back: Backtrace::new(),
+                .context(ProtocolSnafu {
+                    op: Operation::GetSticker,
+                    msg,
+                })?;
+            Ok(Some(T::from_str(s).map_err(|err| {
+                StickerConversionSnafu {
+                    sticker: sticker_name.to_owned(),
                 }
+                .into_error(Box::new(err))
             })?))
         } else {
             // ACK_ERROR_NO_EXIST = 50 (Ack.hxx:17)
-            (text.starts_with("ACK [50@0]")).context(Operation::GetSticker, &msg)?;
+            ensure!(
+                text.starts_with("ACK [50@0]"),
+                ProtocolSnafu {
+                    op: Operation::GetSticker,
+                    msg,
+                }
+            );
             Ok(None)
         }
     }
@@ -699,7 +629,14 @@ impl Client {
         let text = self.stream.req(&msg).await?;
         debug!("Sent `{}'; got `{}'", &msg, &text);
 
-        text.starts_with("OK").context(Operation::SetSticker, &msg)
+        ensure!(
+            text.starts_with("OK"),
+            ProtocolSnafu {
+                op: Operation::SetSticker,
+                msg: msg
+            }
+        );
+        Ok(())
     }
 
     /// Send a file to a playlist
@@ -707,9 +644,14 @@ impl Client {
         let msg = format!("playlistadd {} {}", quote(pl), quote(file));
         let text = self.stream.req(&msg).await?;
         debug!("Sent `{}'; got `{}'.", &msg, &text);
-
-        text.starts_with("OK")
-            .context(Operation::SendToPlaylist, &msg)
+        ensure!(
+            text.starts_with("OK"),
+            ProtocolSnafu {
+                op: Operation::SendToPlaylist,
+                msg
+            }
+        );
+        Ok(())
     }
 
     /// Send an arbitrary message
@@ -718,8 +660,14 @@ impl Client {
         let text = self.stream.req(&msg).await?;
         debug!("Sent `{}'; got `{}'.", &msg, &text);
 
-        text.starts_with("OK")
-            .context(Operation::SendMessage, &text)
+        ensure!(
+            text.starts_with("OK"),
+            ProtocolSnafu {
+                op: Operation::SendMessage,
+                msg: text
+            }
+        );
+        Ok(())
     }
 
     /// Update a URI
@@ -736,11 +684,22 @@ impl Client {
         // on failure.
 
         let prefix = "updating_db: ";
-        text.starts_with(prefix).context(Operation::Update, &text)?;
+        ensure!(
+            text.starts_with(prefix),
+            ProtocolSnafu {
+                op: Operation::Update,
+                msg: &text
+            }
+        );
         text[prefix.len()..].split('\n').collect::<Vec<&str>>()[0]
             .to_string()
             .parse::<u64>()
-            .context(Operation::Update, &text)
+            .map_err(|err| {
+                ProtocolConvSnafu {
+                    op: Operation::Update,
+                }
+                .into_error(Box::new(err))
+            })
     }
 
     /// Get the list of stored playlists
@@ -759,24 +718,23 @@ impl Client {
         // or
         //
         // ACK...
-        if text.starts_with("ACK") {
-            Err(Error::Protocol {
+        ensure!(
+            !text.starts_with("ACK"),
+            ProtocolSnafu {
                 op: Operation::GetStoredPlaylists,
-                msg: text,
-                back: Backtrace::new(),
+                msg: text
+            }
+        );
+        Ok(text
+            .lines()
+            .filter_map(|x| {
+                if x.starts_with("playlist: ") {
+                    Some(String::from(&x[10..]))
+                } else {
+                    None
+                }
             })
-        } else {
-            Ok(text
-                .lines()
-                .filter_map(|x| {
-                    if x.starts_with("playlist: ") {
-                        Some(String::from(&x[10..]))
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<String>>())
-        }
+            .collect::<Vec<String>>())
     }
 
     /// Process a search (either find or search) response
@@ -793,24 +751,23 @@ impl Client {
         // or
         //
         // ACK...
-        if text.starts_with("ACK") {
-            Err(Error::Protocol {
+        ensure!(
+            !text.starts_with("ACK"),
+            ProtocolSnafu {
                 op: Operation::RspToUris,
-                msg: String::from(text),
-                back: Backtrace::new(),
+                msg: text.to_owned()
+            }
+        );
+        Ok(text
+            .lines()
+            .filter_map(|x| {
+                if x.starts_with("file: ") {
+                    Some(String::from(&x[6..]))
+                } else {
+                    None
+                }
             })
-        } else {
-            Ok(text
-                .lines()
-                .filter_map(|x| {
-                    if x.starts_with("file: ") {
-                        Some(String::from(&x[6..]))
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<String>>())
-        }
+            .collect::<Vec<String>>())
     }
 
     /// Search the database for songs matching filter (unary operator)
@@ -872,30 +829,34 @@ impl Client {
         // or
         //
         // ACK ...
-
-        if text.starts_with("ACK") {
-            Err(Error::Protocol {
+        ensure!(
+            !text.starts_with("ACK"),
+            ProtocolSnafu {
                 op: Operation::GetStickers,
                 msg: text,
-                back: Backtrace::new(),
-            })
-        } else {
-            let mut m = HashMap::new();
-            let mut lines = text.lines();
-            loop {
-                let file = lines.next().context(Operation::GetStickers, &text)?;
-                if "OK" == file {
-                    break;
-                }
-                let val = lines.next().context(Operation::GetStickers, &text)?;
-
-                m.insert(
-                    String::from(&file[6..]),
-                    String::from(&val[10 + sticker.len()..]),
-                );
             }
-            Ok(m)
+        );
+        let mut m = HashMap::new();
+        let mut lines = text.lines();
+        loop {
+            let file = lines.next().context(ProtocolSnafu {
+                op: Operation::GetStickers,
+                msg: text.to_owned(),
+            })?;
+            if "OK" == file {
+                break;
+            }
+            let val = lines.next().context(ProtocolSnafu {
+                op: Operation::GetStickers,
+                msg: text.to_owned(),
+            })?;
+
+            m.insert(
+                String::from(&file[6..]),
+                String::from(&val[10 + sticker.len()..]),
+            );
         }
+        Ok(m)
     }
 
     /// Retrieve the song URIs of all songs in the database
@@ -917,24 +878,23 @@ impl Client {
         // OK
         //
         // or "ACK..."
-        if text.starts_with("ACK") {
-            Err(Error::Protocol {
+        ensure!(
+            !text.starts_with("ACK"),
+            ProtocolSnafu {
                 op: Operation::GetAllSongs,
                 msg: text,
-                back: Backtrace::new(),
+            }
+        );
+        Ok(text
+            .lines()
+            .filter_map(|x| {
+                if x.starts_with("file: ") {
+                    Some(String::from(&x[6..]))
+                } else {
+                    None
+                }
             })
-        } else {
-            Ok(text
-                .lines()
-                .filter_map(|x| {
-                    if x.starts_with("file: ") {
-                        Some(String::from(&x[6..]))
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<String>>())
-        }
+            .collect::<Vec<String>>())
     }
 
     pub async fn add(&mut self, uri: &str) -> Result<()> {
@@ -942,7 +902,13 @@ impl Client {
         let text = self.stream.req(&msg).await?;
         debug!("Sent `{}'; got `{}'.", &msg, &text);
 
-        text.starts_with("OK").context(Operation::Add, &text)?;
+        ensure!(
+            text.starts_with("OK"),
+            ProtocolSnafu {
+                op: Operation::Add,
+                msg: &text
+            }
+        );
         Ok(())
     }
 }
@@ -1216,10 +1182,10 @@ impl TryFrom<&str> for IdleSubSystem {
         } else if x == "message" {
             Ok(IdleSubSystem::Message)
         } else {
-            Err(Error::IdleSubSystem {
+            Err(IdleSubSystemSnafu {
                 text: String::from(text),
-                back: Backtrace::new(),
-            })
+            }
+            .build())
         }
     }
 }
@@ -1282,7 +1248,13 @@ impl IdleClient {
     pub async fn subscribe(&mut self, chan: &str) -> Result<()> {
         let text = self.conn.req(&format!("subscribe {}", chan)).await?;
         debug!("Sent subscribe message for {}; got `{}'.", chan, text);
-        text.starts_with("OK").context(Operation::Connect, &text)?;
+        ensure!(
+            text.starts_with("OK"),
+            ProtocolSnafu {
+                op: Operation::Connect,
+                msg: &text
+            }
+        );
         debug!("Subscribed to {}.", chan);
         Ok(())
     }
@@ -1304,13 +1276,27 @@ impl IdleClient {
         //
         // We remain subscribed, but we need to send a new idle message.
 
-        text.starts_with("changed: ")
-            .context(Operation::Idle, &text)?;
-        let idx = text.find('\n').context(Operation::Idle, &text)?;
+        ensure!(
+            text.starts_with("changed: "),
+            ProtocolSnafu {
+                op: Operation::Idle,
+                msg: &text
+            }
+        );
+        let idx = text.find('\n').context(ProtocolSnafu {
+            op: Operation::Idle,
+            msg: text.to_owned(),
+        })?;
 
         let result = IdleSubSystem::try_from(&text[9..idx])?;
         let text = text[idx + 1..].to_string();
-        text.starts_with("OK").context(Operation::Idle, &text)?;
+        ensure!(
+            text.starts_with("OK"),
+            ProtocolSnafu {
+                op: Operation::Idle,
+                msg: &text
+            }
+        );
 
         Ok(result)
     }
@@ -1343,8 +1329,13 @@ impl IdleClient {
         for line in text.lines() {
             match state {
                 State::Init => {
-                    line.starts_with("channel: ")
-                        .context(Operation::GetMessages, &line)?;
+                    ensure!(
+                        line.starts_with("channel: "),
+                        ProtocolSnafu {
+                            op: Operation::GetMessages,
+                            msg: line.to_owned()
+                        }
+                    );
                     chan = String::from(&line[9..]);
                     state = State::Running;
                 }
@@ -1369,20 +1360,20 @@ impl IdleClient {
                         }
                         state = State::Finished;
                     } else {
-                        return Err(Error::Protocol {
+                        return Err(ProtocolSnafu {
                             op: Operation::GetMessages,
                             msg: text,
-                            back: Backtrace::new(),
-                        });
+                        }
+                        .build());
                     }
                 }
                 State::Finished => {
                     // Should never be here!
-                    return Err(Error::Protocol {
+                    return Err(ProtocolSnafu {
                         op: Operation::GetMessages,
                         msg: String::from(line),
-                        back: Backtrace::new(),
-                    });
+                    }
+                    .build());
                 }
             }
         }

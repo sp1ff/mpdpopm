@@ -296,7 +296,7 @@ pub async fn mpdpopm(
                             break;
                         },
                         Err(err) => {
-                            debug!("error {} on idle", err);
+                            debug!("error {err:#?} on idle");
                             done = true;
                             break;
                         }
@@ -321,7 +321,7 @@ pub async fn mpdpopm(
                 )
                 .await
             {
-                error!("Error while processing messages: {}", err);
+                error!("Error while processing messages: {err:#?}");
             }
         }
     } // End `while'.
