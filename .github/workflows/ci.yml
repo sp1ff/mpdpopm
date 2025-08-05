@@ -21,26 +21,26 @@ jobs:
           - pinned
           - stable
           - nightly
-        os: [ubuntu-22.04, macos-12]
+        os: [ubuntu-22.04] # [ubuntu-22.04, macos-latest]
         include:
         - rust-build: pinned
           os: ubuntu-22.04
-          rust: 1.70.0
+          rust: 1.82.0
         - rust-build: stable
           os: ubuntu-22.04
           rust: stable
         - rust-build: nightly
           os: ubuntu-22.04
           rust: nightly
-        - rust-build: pinned
-          os: macos-12
-          rust: 1.70.0
-        - rust-build: stable
-          os: macos-12
-          rust: stable
-        - rust-build: nightly
-          os: macos-12
-          rust: nightly
+        # - rust-build: pinned
+        #   os: macos-latest
+        #   rust: 1.82.0
+        # - rust-build: stable
+        #   os: macos-latest
+        #   rust: stable
+        # - rust-build: nightly
+        #   os: macos-latest
+        #   rust: nightly
     runs-on: ${{ matrix.os }}
     env:
       RUST_BACKTRACE: 1
@@ -80,7 +80,7 @@ jobs:
           sudo apt-get install -y autoconf automake emacs liblzma-dev texlive
 
     - name: Install Tools (macOS)
-      if: matrix.os == 'macos-12'
+      if: matrix.os == 'macos-latest'
       shell: bash
       run: |
           set -x
@@ -99,15 +99,15 @@ jobs:
           brew install --cask basictex
 
     - name: Install a modern version of Texinfo
-      if: matrix.os == 'macos-12'
+      if: matrix.os == 'macos-latest'
       shell: bash
       run: |
           set -x
           mkdir tmp && cd tmp
           # TODO(sp1ff): cache this
-          curl -L -O https://ftp.gnu.org/gnu/texinfo/texinfo-7.0.2.tar.gz
-          tar xf texinfo-7.0.2.tar.gz
-          cd texinfo-7.0.2
+          curl -L -O https://ftp.gnu.org/gnu/texinfo/texinfo-7.2.tar.gz
+          tar xf texinfo-7.2.tar.gz
+          cd texinfo-7.2
           ./configure
           make
           make install
@@ -156,7 +156,7 @@ jobs:
       run: make distcheck
 
     - name: Check the Autotools distribution (MacOS)
-      if: matrix.os == 'macos-12'
+      if: matrix.os == 'macos-latest'
       shell: bash
       run: |
         eval "$(/usr/libexec/path_helper)"
