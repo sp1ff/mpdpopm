@@ -123,7 +123,6 @@ pub enum Error {
     },
     #[snafu(display("Encoding error: {}", source))]
     Encoding {
-        buf: Vec<u8>,
         source: std::string::FromUtf8Error,
         backtrace: Backtrace,
     },
@@ -350,7 +349,7 @@ where
         }
 
         // Only doing this to trouble-shoot issue 11
-        String::from_utf8(buf.clone()).context(EncodingSnafu { buf })
+        String::from_utf8(buf.clone()).context(EncodingSnafu)
     }
 }
 
@@ -362,7 +361,7 @@ where
     let mut buf = Vec::with_capacity(32);
     let _cb = sock.read_buf(&mut buf).await.context(IoSnafu)?;
     // Only doing this to trouble-shoot issue 11
-    let text = String::from_utf8(buf.clone()).context(EncodingSnafu { buf })?;
+    let text = String::from_utf8(buf.clone()).context(EncodingSnafu)?;
     ensure!(
         text.starts_with("OK MPD "),
         ProtocolSnafu {
