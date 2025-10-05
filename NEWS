@@ -2,6 +2,11 @@ mpdpopm News -- history of user-visible changes           -*- outline -*-
 
 * 0.3 builds
 
+** NEXT RELEASE
+
+*** User-visible changes
+
+**** Don't print-out the binary on UTF-8 encoding error
 ** 0.3.4 build
 
 *** User-visible changes
