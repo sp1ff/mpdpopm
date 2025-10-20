@@ -22,9 +22,9 @@ RUN pacman-key --init && pacman --noconfirm -Sy archlinux-keyring && \
 #     curl -LO "https://repo.archlinuxcn.org/x86_64/$patched_glibc" && \
 # 	bsdtar -C / -xvf "$patched_glibc"
 
-RUN pacman --noconfirm -S base-devel pacman-contrib namcap git man-db man-pages \
+RUN ln -sf /usr/share/zoneinfo/America/Los_Angeles /etc/localtime && \
+    pacman --noconfirm -Syu base-devel pacman-contrib namcap git man-db man-pages \
     texinfo vim gdb rust cargo && \
-    ln -sf /usr/share/zoneinfo/America/Los_Angeles /etc/localtime && \
     useradd -ms /bin/bash -G users,wheel mgh && \
     echo 'mgh:mgh' | chpasswd && \
     echo "%wheel ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
