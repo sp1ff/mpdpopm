@@ -1,16 +1,22 @@
+2025-10-19  Michael Herstine  <sp1ff@pobox.com>
+
+	Update copyrights
+
+	Bump version to 0.3.5
+
 2025-10-04  Michael Herstine  <sp1ff@pobox.com>
 
-	Update NEWS pre-merge
-
-2025-09-16  Michael Herstine  <sp1ff@pobox.com>
-
-	Fix CI
-
-2025-09-13  Michael Herstine  <sp1ff@pobox.com>
+	Update NEWS & ChangeLog pre-merge
 
 	Remove `buf` from `clients::Error::Encoding`.
 
 2025-08-05  Michael Herstine  <sp1ff@pobox.com>
+
+	Merge branch 'rel-0.3.4'
+
+	Fix release workflow
+
+	Fix the continuous integration workflow
 
 	Fix the continuous integration workflow
 
