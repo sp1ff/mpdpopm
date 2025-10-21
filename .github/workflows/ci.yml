@@ -21,8 +21,17 @@ jobs:
           - pinned
           - stable
           - nightly
-        os: [ubuntu-22.04] # [ubuntu-22.04, macos-latest]
+        os: [ubuntu-22.04, ubuntu-latest, macos-latest]
         include:
+        - rust-build: pinned
+          os: ubuntu-latest
+          rust: 1.82.0
+        - rust-build: stable
+          os: ubuntu-latest
+          rust: stable
+        - rust-build: nightly
+          os: ubuntu-latest
+          rust: nightly
         - rust-build: pinned
           os: ubuntu-22.04
           rust: 1.82.0
@@ -32,15 +41,15 @@ jobs:
         - rust-build: nightly
           os: ubuntu-22.04
           rust: nightly
-        # - rust-build: pinned
-        #   os: macos-latest
-        #   rust: 1.82.0
-        # - rust-build: stable
-        #   os: macos-latest
-        #   rust: stable
-        # - rust-build: nightly
-        #   os: macos-latest
-        #   rust: nightly
+        - rust-build: pinned
+          os: macos-latest
+          rust: 1.82.0
+        - rust-build: stable
+          os: macos-latest
+          rust: stable
+        - rust-build: nightly
+          os: macos-latest
+          rust: nightly
     runs-on: ${{ matrix.os }}
     env:
       RUST_BACKTRACE: 1
@@ -110,7 +119,7 @@ jobs:
           cd texinfo-7.2
           ./configure
           make
-          make install
+          sudo make install
           type -p texi2dvi
           texi2dvi --version
 

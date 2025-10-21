@@ -26,8 +26,8 @@ jobs:
     name: create-release
     runs-on: ubuntu-latest
     # Un-comment this for testing
-    # env:
-    #   RELEASE_VERSION: 0.3.4
+    env:
+      RELEASE_VERSION: 0.3.5
     steps:
       - name: Create artifacts directory
         run: mkdir artifacts
@@ -63,21 +63,21 @@ jobs:
   build-release:
     name: build-release
     needs: ['create-release']
-    runs-on: ${{ matrix.os }}
-    env:
-      RUST_BACKTRACE: 1
     strategy:
       matrix:
         build: [linux, macos]
         include:
         - build: linux
-          os: ubuntu-22.04
+          os: ubuntu-latest
           rust: stable
           target: x86_64-unknown-linux
         - build: macos
-          os: macos-12
+          os: macos-latest
           rust: stable
           target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    env:
+      RUST_BACKTRACE: 1
 
     steps:
 
@@ -90,7 +90,7 @@ jobs:
         toolchain: ${{ matrix.rust }}
 
     - name: Install Tools (Ubuntu)
-      if: matrix.os == 'ubuntu-22.04'
+      if: matrix.os == 'ubuntu-latest'
       shell: bash
       run: |
           pwd
@@ -100,7 +100,7 @@ jobs:
           sudo apt-get install -y autoconf automake emacs liblzma-dev texlive
 
     - name: Install Tools (macOS)
-      if: matrix.os == 'macos-12'
+      if: matrix.os == 'macos-latest'
       shell: bash
       run: |
           set -x
@@ -119,18 +119,18 @@ jobs:
           brew install --cask basictex
 
     - name: Install a modern version of Texinfo
-      if: matrix.os == 'macos-12'
+      if: matrix.os == 'macos-latest'
       shell: bash
       run: |
           set -x
           mkdir tmp && cd tmp
           # TODO(sp1ff): cache this
-          curl -L -O https://ftp.gnu.org/gnu/texinfo/texinfo-7.0.2.tar.gz
-          tar xf texinfo-7.0.2.tar.gz
-          cd texinfo-7.0.2
+          curl -L -O https://ftp.gnu.org/gnu/texinfo/texinfo-7.2.tar.gz
+          tar xf texinfo-7.2.tar.gz
+          cd texinfo-7.2
           ./configure
           make
-          make install
+          sudo make install
           type -p texi2dvi
           texi2dvi --version
 
@@ -202,7 +202,7 @@ jobs:
         asset_content_type: application/octet-stream
 
     - name: Upload gzip tarball
-      if: matrix.os == 'ubuntu-22.04'
+      if: matrix.os == 'ubuntu-latest'
       uses: actions/upload-release-asset@v1.0.1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -213,7 +213,7 @@ jobs:
         asset_content_type: application/octet-stream
 
     - name: Upload xzip tarball
-      if: matrix.os == 'ubuntu-22.04'
+      if: matrix.os == 'ubuntu-latest'
       uses: actions/upload-release-asset@v1.0.1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -224,7 +224,7 @@ jobs:
         asset_content_type: application/octet-stream
 
     - name: Upload zst tarball
-      if: matrix.os == 'ubuntu-22.04'
+      if: matrix.os == 'ubuntu-latest'
       uses: actions/upload-release-asset@v1.0.1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -235,7 +235,7 @@ jobs:
         asset_content_type: application/octet-stream
 
     - name: Make Debian package
-      if: matrix.os == 'ubuntu-22.04'
+      if: matrix.os == 'ubuntu-latest'
       shell: bash
       # You would think I can deduce the name of the package from
       # RELEASE_VERSION, but Debian uses different designators for
@@ -249,7 +249,7 @@ jobs:
         echo "DEBIAN_PKG=$(cd target/debian && ls *.deb)" >> $GITHUB_ENV
 
     - name: Upload Debian package
-      if: matrix.os == 'ubuntu-22.04'
+      if: matrix.os == 'ubuntu-latest'
       uses: actions/upload-release-asset@v1.0.1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
