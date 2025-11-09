@@ -40,74 +40,49 @@
 //! the track may contain whitespace). If omitted, the rating is taken to apply to the current
 //! track.
 
-use crate::clients::Client;
-use crate::commands::{PinnedTaggedCmdFuture, TaggedCommandFuture, spawn};
-
-use backtrace::Backtrace;
-
 use std::collections::HashMap;
 use std::path::PathBuf;
+
+use snafu::{Backtrace, OptionExt, ResultExt, Snafu};
+
+use crate::clients::Client;
+use crate::commands::{spawn, PinnedTaggedCmdFuture, TaggedCommandFuture};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                             Error                                              //
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// An enumeration of ratings errors
-#[derive(Debug)]
+#[derive(Debug, Snafu)]
 pub enum Error {
+    #[snafu(display("Unable to interpret ``{}'' as a rating: {}", text, source))]
     Rating {
         source: std::num::ParseIntError,
         text: String,
+        backtrace: Backtrace,
     },
-    PlayerStopped,
+    #[snafu(display("Player stopped"))]
+    PlayerStopped { backtrace: Backtrace },
+    #[snafu(display("{} not implemented", feature))]
     NotImplemented {
         feature: String,
+        backtrace: Backtrace,
     },
+    #[snafu(display("Bad path: {:?}", pth))]
     BadPath {
-        pth: PathBuf,
-        back: Backtrace,
+        pth: std::path::PathBuf,
+        backtrace: Backtrace,
     },
+    #[snafu(display("Client error: {}", source))]
     Client {
         source: crate::clients::Error,
-        back: Backtrace,
+        backtrace: Backtrace,
     },
+    #[snafu(display("Command error: {}", source))]
     Command {
         source: crate::commands::Error,
-        back: Backtrace,
+        backtrace: Backtrace,
     },
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Error::Rating { source, text } => write!(
-                f,
-                "Unable to interpret ``{}'' as a rating: {}",
-                text, source
-            ),
-            Error::PlayerStopped => write!(f, "Player stopped"),
-            Error::NotImplemented { feature } => write!(f, "{} not implemented", feature),
-            Error::BadPath { pth, back: _ } => write!(f, "Bad path: {:?}", pth),
-            Error::Client { source, back: _ } => write!(f, "Client error: {}", source),
-            Error::Command { source, back: _ } => write!(f, "Command error: {}", source),
-        }
-    }
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match &self {
-            Error::Rating {
-                text: _,
-                ref source,
-            } => Some(source),
-            Error::Client {
-                ref source,
-                back: _,
-            } => Some(source),
-            _ => None,
-        }
-    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -163,9 +138,8 @@ impl std::convert::TryFrom<&str> for RatingRequest {
                 "****" => 196,
                 "*****" => 255,
                 // failing that, we try just interperting `rating' as an unsigned integer:
-                _ => rating.parse::<u8>().map_err(|err| Error::Rating {
-                    source: err,
-                    text: String::from(rating),
+                _ => rating.parse::<u8>().context(RatingSnafu {
+                    text: rating.to_string(),
                 })?,
             }
         };
@@ -217,25 +191,18 @@ mod rating_request_tests {
 //                                           Rating Ops                                           //
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// Retrieve the rating for a track as an unsigned int from zero to 255
 pub async fn get_rating(client: &mut Client, sticker: &str, file: &str) -> Result<u8> {
+    use snafu::ResultExt;
     match client
         .get_sticker::<u8>(file, sticker)
         .await
-        .map_err(|err| Error::Client {
-            source: err,
-            back: Backtrace::new(),
-        })? {
+        .context(ClientSnafu)?
+    {
         Some(x) => Ok(x),
         None => Ok(0u8),
     }
 }
 
-/// Core routine for setting the rating for a track-- will run the associated command, if present
-///
-/// Set `sticker` on `file` to `rating`. Run `cmd` afterwards with arguments `args` if given. If no
-/// commands was specified return None. If so, return Some with a payload of a pinned
-/// TaggedCommandFuture representing the eventual results of that command.
 pub async fn set_rating<I: Iterator<Item = String>>(
     client: &mut Client,
     sticker: &str,
@@ -245,15 +212,12 @@ pub async fn set_rating<I: Iterator<Item = String>>(
     args: I,
     music_dir: &str,
 ) -> Result<Option<PinnedTaggedCmdFuture>> {
+    use snafu::ResultExt;
     client
         .set_sticker(file, sticker, &format!("{}", rating))
         .await
-        .map_err(|err| Error::Client {
-            source: err,
-            back: Backtrace::new(),
-        })?;
+        .context(ClientSnafu)?;
 
-    // This isn't the best way to indicate "no command"; should take an Option, instead
     if cmd.is_empty() {
         return Ok(None);
     }
@@ -264,19 +228,15 @@ pub async fn set_rating<I: Iterator<Item = String>>(
         "full-file".to_string(),
         full_path
             .to_str()
-            .ok_or_else(|| Error::BadPath {
+            .context(BadPathSnafu {
                 pth: full_path.clone(),
-                back: Backtrace::new(),
             })?
             .to_string(),
     );
     params.insert("rating".to_string(), format!("{}", rating));
 
     Ok(Some(TaggedCommandFuture::pin(
-        spawn(cmd, args, &params).map_err(|err| Error::Command {
-            source: err,
-            back: Backtrace::new(),
-        })?,
-        None, /* No need to update the DB */
+        spawn(cmd, args, &params).context(CommandSnafu)?,
+        None,
     )))
 }

@@ -19,9 +19,10 @@
 
 use crate::clients::Client;
 
-use backtrace::Backtrace;
 use boolinator::Boolinator;
 use chrono::prelude::*;
+use snafu::{prelude::*, Backtrace};
+use tap::Pipe;
 use tracing::debug;
 
 use std::collections::{HashMap, HashSet};
@@ -217,11 +218,9 @@ mod smoke_tests {
     fn test_conditions() {
         assert!(TermParser::new().parse("base 'foo'").is_ok());
         assert!(TermParser::new().parse("artist == 'foo'").is_ok());
-        assert!(
-            TermParser::new()
-                .parse(r#"artist =~ "foo bar \"splat\"!""#)
-                .is_ok()
-        );
+        assert!(TermParser::new()
+            .parse(r#"artist =~ "foo bar \"splat\"!""#)
+            .is_ok());
         assert!(TermParser::new().parse("artist =~ 'Pogues'").is_ok());
 
         match *TermParser::new()
@@ -256,26 +255,20 @@ mod smoke_tests {
     fn test_expressions() {
         assert!(ExpressionParser::new().parse("( base 'foo' )").is_ok());
         assert!(ExpressionParser::new().parse("(base \"foo\")").is_ok());
-        assert!(
-            ExpressionParser::new()
-                .parse("(!(artist == 'value'))")
-                .is_ok()
-        );
-        assert!(
-            ExpressionParser::new()
-                .parse(r#"((!(artist == "foo bar")) AND (base "/My Music"))"#)
-                .is_ok()
-        );
+        assert!(ExpressionParser::new()
+            .parse("(!(artist == 'value'))")
+            .is_ok());
+        assert!(ExpressionParser::new()
+            .parse(r#"((!(artist == "foo bar")) AND (base "/My Music"))"#)
+            .is_ok());
     }
 
     #[test]
     fn test_quoted_expr() {
         eprintln!("test_quoted_expr");
-        assert!(
-            ExpressionParser::new()
-                .parse(r#"(artist =~ "foo\\bar\"")"#)
-                .is_ok()
-        );
+        assert!(ExpressionParser::new()
+            .parse(r#"(artist =~ "foo\\bar\"")"#)
+            .is_ok());
     }
 
     #[test]
@@ -335,91 +328,44 @@ impl std::fmt::Display for EvalOp {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Snafu)]
 pub enum Error {
-    BadISO8601String {
-        text: Vec<u8>,
-        back: Backtrace,
-    },
-    ExpectQuoted {
-        text: String,
-        back: Backtrace,
-    },
-    FilterTypeErr {
-        text: String,
-        back: Backtrace,
-    },
-    InvalidOperand {
-        op: OpCode,
-        back: Backtrace,
-    },
-    OperatorOnStack {
-        op: EvalOp,
-        back: Backtrace,
-    },
-    RatingOverflow {
-        rating: usize,
-        back: Backtrace,
-    },
+    #[snafu(display("Bad ISO8601 timestamp: ``{:?}''", text))]
+    BadISO8601String { text: Vec<u8>, backtrace: Backtrace },
+
+    #[snafu(display("Expected quote: ``{}''", text))]
+    ExpectQuoted { text: String, backtrace: Backtrace },
+
+    #[snafu(display("Un-expected type in filter ``{}''", text))]
+    FilterTypeErr { text: String, backtrace: Backtrace },
+
+    #[snafu(display("Invalid operand {}", op))]
+    InvalidOperand { op: OpCode, backtrace: Backtrace },
+
+    #[snafu(display("Operator {} left on parse stack", op))]
+    OperatorOnStack { op: EvalOp, backtrace: Backtrace },
+
+    #[snafu(display("Rating {} overflows", rating))]
+    RatingOverflow { rating: usize, backtrace: Backtrace },
+
+    #[snafu(display("Too many operands ({})", num_ops))]
     TooManyOperands {
         num_ops: usize,
-        back: Backtrace,
+        backtrace: Backtrace,
     },
+
+    #[snafu(display("While parsing sticker {}, got {}", sticker, source))]
     NumericParse {
         sticker: String,
         source: std::num::ParseIntError,
-        back: Backtrace,
+        backtrace: Backtrace,
     },
+
+    #[snafu(display("Client error: {}", source))]
     Client {
         source: crate::clients::Error,
-        back: Backtrace,
+        backtrace: Backtrace,
     },
-}
-
-impl std::fmt::Display for Error {
-    #[allow(unreachable_patterns)] // the _ arm is *currently* unreachable
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Error::BadISO8601String { text, back: _ } => {
-                write!(f, "Bad ISO8601 timestamp: ``{:?}''", text)
-            }
-            Error::ExpectQuoted { text, back: _ } => write!(f, "Expected quote: ``{}''", text),
-            Error::FilterTypeErr { text, back: _ } => {
-                write!(f, "Un-expected type in filter ``{}''", text)
-            }
-            Error::InvalidOperand { op, back: _ } => write!(f, "Invalid operand {}", op),
-            Error::OperatorOnStack { op, back: _ } => {
-                write!(f, "Operator {} left on parse stack", op)
-            }
-            Error::RatingOverflow { rating, back: _ } => write!(f, "Rating {} overflows", rating),
-            Error::TooManyOperands { num_ops, back: _ } => {
-                write!(f, "Too many operands ({})", num_ops)
-            }
-            Error::NumericParse {
-                sticker,
-                source,
-                back: _,
-            } => write!(f, "While parsing sticker {}, got {}", sticker, source),
-            Error::Client { source, back: _ } => write!(f, "Client error: {}", source),
-        }
-    }
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match &self {
-            Error::NumericParse {
-                sticker: _,
-                ref source,
-                back: _,
-            } => Some(source),
-            Error::Client {
-                ref source,
-                back: _,
-            } => Some(source),
-            _ => None,
-        }
-    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -435,10 +381,7 @@ fn peek(buf: &[u8]) -> Option<char> {
 /// Pop a single byte off of `buf`
 fn take1(buf: &mut &[u8], i: usize) -> Result<()> {
     if i > buf.len() {
-        return Err(Error::BadISO8601String {
-            text: buf.to_vec(),
-            back: Backtrace::new(),
-        });
+        return BadISO8601StringSnafu { text: buf.to_vec() }.fail();
     }
     let (_first, second) = buf.split_at(i);
     *buf = second;
@@ -452,23 +395,16 @@ where
 {
     // 1. check len
     if i > buf.len() {
-        return Err(Error::BadISO8601String {
-            text: buf.to_vec(),
-            back: Backtrace::new(),
-        });
+        return BadISO8601StringSnafu { text: buf.to_vec() }.fail();
     }
     let (first, second) = buf.split_at(i);
     *buf = second;
     // 2. convert to a string
-    let s = std::str::from_utf8(first).map_err(|_| Error::BadISO8601String {
-        text: buf.to_vec(),
-        back: Backtrace::new(),
-    })?;
+    let s = std::str::from_utf8(first)
+        .map_err(|_| BadISO8601StringSnafu { text: buf.to_vec() }.build())?;
     // 3. parse as a T
-    s.parse::<T>().map_err(|_err| Error::BadISO8601String {
-        text: buf.to_vec(),
-        back: Backtrace::new(),
-    }) // Parse*Error => Error
+    s.parse::<T>()
+        .map_err(|_| BadISO8601StringSnafu { text: buf.to_vec() }.build())
 }
 
 /// Parse a timestamp in ISO 8601 format to a chrono DateTime instance
@@ -546,21 +482,16 @@ pub fn parse_iso_8601(mut buf: &mut &[u8]) -> Result<i64> {
         // At this point, there may be a timezone
         if !buf.is_empty() {
             if peek(buf) == Some('Z') {
-                return Ok(Utc
+                return Utc
                     .with_ymd_and_hms(year, month, day, hour, minute, second)
                     .single()
-                    .ok_or(Error::BadISO8601String {
-                        text: buf.to_vec(),
-                        back: Backtrace::new(),
-                    })?
-                    .timestamp());
+                    .context(BadISO8601StringSnafu { text: buf.to_vec() })?
+                    .timestamp()
+                    .pipe(Ok);
             } else {
                 let next = peek(buf);
                 if next != Some('-') && next != Some('+') {
-                    return Err(Error::BadISO8601String {
-                        text: buf.to_vec(),
-                        back: Backtrace::new(),
-                    });
+                    return BadISO8601StringSnafu { text: buf.to_vec() }.fail();
                 }
                 let west = next == Some('-');
                 take1(&mut buf, 1)?;
@@ -576,31 +507,21 @@ pub fn parse_iso_8601(mut buf: &mut &[u8]) -> Result<i64> {
                 }
 
                 if west {
-                    return Ok(FixedOffset::west_opt(hours * 3600 + minutes * 60)
-                        .ok_or(Error::BadISO8601String {
-                            text: buf.to_vec(),
-                            back: Backtrace::new(),
-                        })?
+                    return FixedOffset::west_opt(hours * 3600 + minutes * 60)
+                        .context(BadISO8601StringSnafu { text: buf.to_vec() })?
                         .with_ymd_and_hms(year, month, day, hour, minute, second)
                         .single()
-                        .ok_or(Error::BadISO8601String {
-                            text: buf.to_vec(),
-                            back: Backtrace::new(),
-                        })?
-                        .timestamp());
+                        .context(BadISO8601StringSnafu { text: buf.to_vec() })?
+                        .timestamp()
+                        .pipe(Ok);
                 } else {
-                    return Ok(FixedOffset::east_opt(hours * 3600 + minutes * 60)
-                        .ok_or(Error::BadISO8601String {
-                            text: buf.to_vec(),
-                            back: Backtrace::new(),
-                        })?
+                    return FixedOffset::east_opt(hours * 3600 + minutes * 60)
+                        .context(BadISO8601StringSnafu { text: buf.to_vec() })?
                         .with_ymd_and_hms(year, month, day, hour, minute, second)
                         .single()
-                        .ok_or(Error::BadISO8601String {
-                            text: buf.to_vec(),
-                            back: Backtrace::new(),
-                        })?
-                        .timestamp());
+                        .context(BadISO8601StringSnafu { text: buf.to_vec() })?
+                        .timestamp()
+                        .pipe(Ok);
                 }
             }
         }
@@ -608,10 +529,7 @@ pub fn parse_iso_8601(mut buf: &mut &[u8]) -> Result<i64> {
     Ok(Local
         .with_ymd_and_hms(year, month, day, hour, minute, second)
         .single()
-        .ok_or(Error::BadISO8601String {
-            text: buf.to_vec(),
-            back: Backtrace::new(),
-        })?
+        .context(BadISO8601StringSnafu { text: buf.to_vec() })?
         .timestamp())
 }
 
@@ -662,10 +580,10 @@ pub fn expect_quoted(qtext: &str) -> Result<String> {
     }
 
     if quote != Some('\'') && quote != Some('"') {
-        return Err(Error::ExpectQuoted {
+        return ExpectQuotedSnafu {
             text: String::from(qtext),
-            back: Backtrace::new(),
-        });
+        }
+        .fail();
     }
 
     let mut ret = String::new();
@@ -680,10 +598,10 @@ pub fn expect_quoted(qtext: &str) -> Result<String> {
         match this {
             Some(c) => ret.push(c),
             None => {
-                return Err(Error::ExpectQuoted {
+                return ExpectQuotedSnafu {
                     text: String::from(qtext),
-                    back: Backtrace::new(),
-                });
+                }
+                .fail();
             }
         }
         this = iter.next();
@@ -718,12 +636,6 @@ fn make_numeric_closure<'a, T: 'a + PartialEq + PartialOrd + Copy>(
     op: OpCode,
     val: T,
 ) -> Result<impl Fn(T) -> bool + 'a> {
-    // Rust closures each have their own type, so this was the only way I could find to
-    // return them from match arms. This seems ugly; perhaps there's something I'm
-    // missing.
-    //
-    // I have no idea why I have to make these `move` closures; T is constrained to by Copy-able,
-    // so I would have expected the closure to just take a copy.
     match op {
         OpCode::Equality => Ok(Box::new(move |x: T| x == val) as Box<dyn Fn(T) -> bool>),
         OpCode::Inequality => Ok(Box::new(move |x: T| x != val) as Box<dyn Fn(T) -> bool>),
@@ -731,24 +643,11 @@ fn make_numeric_closure<'a, T: 'a + PartialEq + PartialOrd + Copy>(
         OpCode::LessThan => Ok(Box::new(move |x: T| x < val) as Box<dyn Fn(T) -> bool>),
         OpCode::GreaterThanEqual => Ok(Box::new(move |x: T| x >= val) as Box<dyn Fn(T) -> bool>),
         OpCode::LessThanEqual => Ok(Box::new(move |x: T| x <= val) as Box<dyn Fn(T) -> bool>),
-        _ => Err(Error::InvalidOperand {
-            op: op,
-            back: Backtrace::new(),
-        }),
+        _ => InvalidOperandSnafu { op }.fail(),
     }
 }
 
 async fn eval_numeric_sticker_term<
-    // The `FromStr' trait bound is really weird, but if I don't constrain the associated
-    // Err type to be `ParseIntError' the compiler complains about not being able to convert
-    // it to type `Error'. I'm probably still "thinking in C++" and imagining the compiler
-    // instantiating this function for each type (u8, usize, &c) instead of realizing that the Rust
-    // compiler is processing this as a first-class function.
-    //
-    // For instance, I can do the conversion manually, so long as I constrain the Err type
-    // to implement std::error::Error. I should probably be doing that, but it clutters the
-    // code. I'll figure it out when I need to extend this function to handle non-integral types
-    // :)
     T: PartialEq + PartialOrd + Copy + FromStr<Err = std::num::ParseIntError> + std::fmt::Display,
 >(
     sticker: &str,
@@ -758,51 +657,28 @@ async fn eval_numeric_sticker_term<
     default_val: T,
 ) -> Result<HashSet<String>> {
     let cmp = make_numeric_closure(op, numeric_val)?;
-    // It would be better to idle on the sticker DB & just update our collection on change, but for
-    // a first impl. this will do.
-    //
-    // Call `get_stickers'; this will return a HashMap from song URIs to ratings expressed as text
-    // (as all stickers are). This stanza will drain that collection into a new one with the ratings
-    // expressed as T.
-    //
-    // The point is that conversion from text to rating, lastplayed, or whatever can fail; the
-    // invocation of `collect' will call `from_iter' to convert a collection of Result-s to a Result
-    // of a collection.
+
     let mut m = client
         .get_stickers(sticker)
         .await
-        .map_err(|err| Error::Client {
-            source: err,
-            back: Backtrace::new(),
-        })?
+        .context(ClientSnafu)?
         .drain()
         .map(|(k, v)| v.parse::<T>().map(|x| (k, x)))
         .collect::<std::result::Result<HashMap<String, T>, _>>()
-        .map_err(|err| Error::NumericParse {
+        .context(NumericParseSnafu {
             sticker: String::from(sticker),
-            source: err,
-            back: Backtrace::new(),
         })?;
-    // `m' is now a map of song URI to rating/playcount/wathever (expressed as a T)... for all songs
-    // that have the salient sticker.
-    //
-    // This seems horribly inefficient, but I'm going to fetch all the song URIs in the music DB,
-    // and augment `m' with entries of `default_val' for any that are not already there.
+
     client
         .get_all_songs()
         .await
-        .map_err(|err| Error::Client {
-            source: err,
-            back: Backtrace::new(),
-        })?
+        .context(ClientSnafu)?
         .drain(..)
         .for_each(|song| {
             if m.get(&song).is_none() {
                 m.insert(song, default_val);
             }
         });
-    // Now that we don't have to worry about operations that can fail, we can use
-    // `filter_map'.
     Ok(m.drain()
         .filter_map(|(k, v)| cmp(v).as_some(k))
         .collect::<HashSet<String>>())
@@ -842,14 +718,13 @@ async fn eval_term<'a>(
     client: &mut Client,
     stickers: &FilterStickerNames<'a>,
 ) -> Result<HashSet<String>> {
+    use snafu::ResultExt;
+
     match term {
         Term::UnaryCondition(op, val) => Ok(client
             .find1(&format!("{}", op), &quote_value(&val), case)
             .await
-            .map_err(|err| Error::Client {
-                source: err,
-                back: Backtrace::new(),
-            })?
+            .context(ClientSnafu)?
             .drain(..)
             .collect()),
         Term::BinaryCondition(attr, op, val) => {
@@ -857,10 +732,7 @@ async fn eval_term<'a>(
                 match val {
                     Value::Uint(n) => {
                         if *n > 255 {
-                            return Err(Error::RatingOverflow {
-                                rating: *n,
-                                back: Backtrace::new(),
-                            });
+                            RatingOverflowSnafu { rating: *n }.fail()?;
                         }
                         Ok(eval_numeric_sticker_term(
                             stickers.rating,
@@ -871,10 +743,10 @@ async fn eval_term<'a>(
                         )
                         .await?)
                     }
-                    _ => Err(Error::FilterTypeErr {
+                    _ => FilterTypeErrSnafu {
                         text: format!("filter ratings expect an unsigned int; got {:#?}", val),
-                        back: Backtrace::new(),
-                    }),
+                    }
+                    .fail(),
                 }
             } else if *attr == Selector::PlayCount {
                 match val {
@@ -886,10 +758,10 @@ async fn eval_term<'a>(
                         0 as usize,
                     )
                     .await?),
-                    _ => Err(Error::FilterTypeErr {
+                    _ => FilterTypeErrSnafu {
                         text: format!("filter ratings expect an unsigned int; got {:#?}", val),
-                        back: Backtrace::new(),
-                    }),
+                    }
+                    .fail(),
                 }
             } else if *attr == Selector::LastPlayed {
                 match val {
@@ -901,10 +773,10 @@ async fn eval_term<'a>(
                         0 as i64,
                     )
                     .await?),
-                    _ => Err(Error::FilterTypeErr {
+                    _ => FilterTypeErrSnafu {
                         text: format!("filter ratings expect an unsigned int; got {:#?}", val),
-                        back: Backtrace::new(),
-                    }),
+                    }
+                    .fail(),
                 }
             } else {
                 Ok(client
@@ -915,10 +787,7 @@ async fn eval_term<'a>(
                         case,
                     )
                     .await
-                    .map_err(|err| Error::Client {
-                        source: err,
-                        back: Backtrace::new(),
-                    })?
+                    .context(ClientSnafu)?
                     .drain(..)
                     .collect())
             }
@@ -940,13 +809,9 @@ async fn negate_result(
     Ok(client
         .get_all_songs()
         .await
-        .map_err(|err| Error::Client {
-            source: err,
-            back: Backtrace::new(),
-        })?
+        .context(ClientSnafu)?
         .drain(..)
         .filter_map(|song| {
-            // Some(thing) adds thing, None elides it
             if !res.contains(&song) {
                 Some(song)
             } else {
@@ -1127,10 +992,7 @@ pub async fn evaluate<'a>(
         se.iter()
             .enumerate()
             .for_each(|(i, x)| debug!("    {}: {:#?}", i, x));
-        return Err(Error::TooManyOperands {
-            num_ops: se.len(),
-            back: Backtrace::new(),
-        });
+        return TooManyOperandsSnafu { num_ops: se.len() }.fail();
     }
 
     let ret = se.pop().unwrap();
@@ -1138,10 +1000,7 @@ pub async fn evaluate<'a>(
         EvalStackNode::Result(result) => Ok(result),
         EvalStackNode::Op(op) => {
             debug!("Operator left on stack (!?): {:#?}", op);
-            Err(Error::OperatorOnStack {
-                op: op,
-                back: Backtrace::new(),
-            })
+            OperatorOnStackSnafu { op: op }.fail()
         }
     }
 }
@@ -1152,8 +1011,8 @@ mod evaluation_tests {
     use super::*;
     use crate::filters::*;
 
-    use crate::clients::Client;
     use crate::clients::test_mock::Mock;
+    use crate::clients::Client;
 
     #[tokio::test]
     async fn smoke() {

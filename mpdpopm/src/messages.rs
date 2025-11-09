@@ -58,7 +58,6 @@ use crate::{
 };
 
 use backtrace::Backtrace;
-use boolinator::Boolinator;
 use tracing::debug;
 
 use std::collections::{HashMap, VecDeque};
@@ -441,7 +440,7 @@ where
             })?;
         for (chan, msgs) in m {
             // Only supporting a single channel, ATM
-            (chan == command_chan).ok_or_else(|| Error::UnknownChannel {
+            <bool as boolinator::Boolinator>::ok_or_else(chan == command_chan, || Error::UnknownChannel {
                 chan: String::from(chan),
                 back: Backtrace::new(),
             })?;

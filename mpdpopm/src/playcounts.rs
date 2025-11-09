@@ -28,7 +28,7 @@
 use crate::clients::{Client, PlayerStatus};
 use crate::commands::{TaggedCommandFuture, spawn};
 
-use backtrace::Backtrace;
+use snafu::{Backtrace, OptionExt, prelude::*};
 use tracing::{debug, info};
 
 use std::collections::HashMap;
@@ -39,60 +39,29 @@ use std::time::SystemTime;
 //                                           Error type                                           //
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug)]
+#[derive(Debug, Snafu)]
 pub enum Error {
+    #[snafu(display("The MPD player is stopped"))]
     PlayerStopped,
+    #[snafu(display("Bad path: {:?}", pth))]
     BadPath {
         pth: PathBuf,
     },
+    #[snafu(display("Couldn't get system time: {}", source))]
     SystemTime {
         source: std::time::SystemTimeError,
-        back: Backtrace,
+        backtrace: Backtrace,
     },
+    #[snafu(display("Client error: {}", source))]
     Client {
         source: crate::clients::Error,
-        back: Backtrace,
+        backtrace: Backtrace,
     },
+    #[snafu(display("Command error: {}", source))]
     Command {
         source: crate::commands::Error,
-        back: Backtrace,
+        backtrace: Backtrace,
     },
-}
-
-impl std::fmt::Display for Error {
-    #[allow(unreachable_patterns)] // the _ arm is *currently* unreachable
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Error::PlayerStopped => write!(f, "The MPD player is stopped"),
-            Error::BadPath { pth } => write!(f, "Bad path: {:?}", pth),
-            Error::SystemTime { source, back: _ } => {
-                write!(f, "Couldn't get system time: {}", source)
-            }
-            Error::Client { source, back: _ } => write!(f, "Client error: {}", source),
-            Error::Command { source, back: _ } => write!(f, "Command error: {}", source),
-            _ => write!(f, "Unknown playcount error"),
-        }
-    }
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match &self {
-            Error::SystemTime {
-                ref source,
-                back: _,
-            } => Some(source),
-            Error::Client {
-                ref source,
-                back: _,
-            } => Some(source),
-            Error::Command {
-                ref source,
-                back: _,
-            } => Some(source),
-            _ => None,
-        }
-    }
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -107,16 +76,10 @@ pub async fn get_play_count(
     sticker: &str,
     file: &str,
 ) -> Result<Option<usize>> {
-    match client
+    Ok(client
         .get_sticker::<usize>(file, sticker)
         .await
-        .map_err(|err| Error::Client {
-            source: err,
-            back: Backtrace::new(),
-        })? {
-        Some(n) => Ok(Some(n)),
-        None => Ok(None),
-    }
+        .context(ClientSnafu)?)
 }
 
 /// Set the play count for a track-- this will run the associated command, if any
@@ -132,10 +95,7 @@ pub async fn set_play_count<I: Iterator<Item = String>>(
     client
         .set_sticker(file, sticker, &format!("{}", play_count))
         .await
-        .map_err(|err| Error::Client {
-            source: err,
-            back: Backtrace::new(),
-        })?;
+        .context(ClientSnafu)?;
 
     if cmd.is_empty() {
         return Ok(None);
@@ -147,7 +107,7 @@ pub async fn set_play_count<I: Iterator<Item = String>>(
         "full-file".to_string(),
         full_path
             .to_str()
-            .ok_or_else(|| Error::BadPath {
+            .context(BadPathSnafu {
                 pth: full_path.clone(),
             })?
             .to_string(),
@@ -155,10 +115,7 @@ pub async fn set_play_count<I: Iterator<Item = String>>(
     params.insert("playcount".to_string(), format!("{}", play_count));
 
     Ok(Some(TaggedCommandFuture::pin(
-        spawn(cmd, args, &params).map_err(|err| Error::Command {
-            source: err,
-            back: Backtrace::new(),
-        })?,
+        spawn(cmd, args, &params).context(CommandSnafu)?,
         None, /* No need to update the DB */
     )))
 }
@@ -172,10 +129,7 @@ pub async fn get_last_played(
     Ok(client
         .get_sticker::<u64>(file, sticker)
         .await
-        .map_err(|err| Error::Client {
-            source: err,
-            back: Backtrace::new(),
-        })?)
+        .context(ClientSnafu)?)
 }
 
 /// Set the last played for a track
@@ -188,10 +142,7 @@ pub async fn set_last_played(
     client
         .set_sticker(file, sticker, &format!("{}", last_played))
         .await
-        .map_err(|err| Error::Client {
-            source: err,
-            back: Backtrace::new(),
-        })?;
+        .context(ClientSnafu)?;
     Ok(())
 }
 
@@ -276,10 +227,7 @@ impl PlayState {
         playcount_cmd_args: &mut I,
         music_dir: &str,
     ) -> Result<Option<std::pin::Pin<std::boxed::Box<TaggedCommandFuture>>>> {
-        let new_stat = client.status().await.map_err(|err| Error::Client {
-            source: err,
-            back: Backtrace::new(),
-        })?;
+        let new_stat = client.status().await.context(ClientSnafu)?;
 
         match (&self.last_server_stat, &new_stat) {
             (PlayerStatus::Play(last), PlayerStatus::Play(curr))
@@ -318,7 +266,7 @@ impl PlayState {
                         curr.songid,
                         curr.elapsed / curr.duration
                     );
-                    let file = curr.file.to_str().ok_or_else(|| Error::BadPath {
+                    let file = curr.file.to_str().context(BadPathSnafu {
                         pth: PathBuf::from(curr.file.clone()),
                     })?;
                     let curr_pc =
@@ -333,10 +281,7 @@ impl PlayState {
                         file,
                         SystemTime::now()
                             .duration_since(SystemTime::UNIX_EPOCH)
-                            .map_err(|err| Error::SystemTime {
-                                source: err,
-                                back: Backtrace::new(),
-                            })?
+                            .context(SystemTimeSnafu)?
                             .as_secs(),
                     )
                     .await?;
