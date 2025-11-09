@@ -42,6 +42,7 @@ use crate::commands::{FormalParameter, Update};
 use crate::vars::{LOCALSTATEDIR, PREFIX};
 
 use serde::{Deserialize, Serialize};
+use snafu::Snafu;
 
 use std::path::PathBuf;
 
@@ -236,23 +237,14 @@ impl From<Config0> for Config {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Snafu)]
 pub enum Error {
     /// Failure to parse
+    #[snafu(display("Parse failure: {outer}"))]
     ParseFail {
         outer: Box<dyn std::error::Error>,
         inner: Box<dyn std::error::Error>,
     },
-}
-
-impl std::fmt::Display for Error {
-    #[allow(unreachable_patterns)] // the _ arm is *currently* unreachable
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Error::ParseFail { outer, inner: _ } => write!(f, "Parse failure: {}", outer),
-            _ => write!(f, "Unknown configuration error"),
-        }
-    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

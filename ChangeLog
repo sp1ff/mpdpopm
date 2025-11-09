@@ -1,4 +1,21 @@
+2026-06-04  Michael Herstine  <sp1ff@pobox.com>
+
+	Migrate to Snafu.
+	This patch migrates the mpdpopm source from hand-authored error
+	types.to Snafu. Functionality should be unchanged
+
+	Also remove the dependency on `backtrace`, now that we're using Snafu.
+
+	This code was authored with the help of Cursor.ai, OpenAI, Claude
+	and direct calls to the OpenAI API.
+
+2025-10-21  Michael Herstine  <sp1ff@pobox.com>
+
+	Get ci.yml & release.yml working on both Ubunti and MacOS.
+
 2025-10-19  Michael Herstine  <sp1ff@pobox.com>
+
+	Final pre-release cleanup
 
 	Update copyrights
 

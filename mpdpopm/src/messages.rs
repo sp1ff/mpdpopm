@@ -48,123 +48,84 @@
 //! Additional commands may be added through the
 //! [generalized commands](crate::commands#the-generalized-command-framework) feature.
 
-use crate::{
-    clients::{Client, IdleClient, PlayerStatus},
-    commands::{GeneralizedCommand, PinnedTaggedCmdFuture},
-    filters::ExpressionParser,
-    filters_ast::{FilterStickerNames, evaluate},
-    playcounts::{set_last_played, set_play_count},
-    ratings::{RatedTrack, RatingRequest, set_rating},
-};
-
-use backtrace::Backtrace;
-use boolinator::Boolinator;
-use tracing::debug;
-
 use std::collections::{HashMap, VecDeque};
 use std::convert::TryFrom;
 use std::iter::FromIterator;
 use std::path::PathBuf;
 
+use snafu::{prelude::*, Backtrace, IntoError};
+use tracing::debug;
+
+use crate::{
+    clients::{Client, IdleClient, PlayerStatus},
+    commands::{GeneralizedCommand, PinnedTaggedCmdFuture},
+    filters::ExpressionParser,
+    filters_ast::{evaluate, FilterStickerNames},
+    playcounts::{set_last_played, set_play_count},
+    ratings::{set_rating, RatedTrack, RatingRequest},
+};
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug)]
+#[derive(Debug, Snafu)]
 pub enum Error {
-    BadPath {
-        pth: PathBuf,
-    },
-    FilterParseError {
-        msg: String,
-    },
-    InvalidChar {
-        c: u8,
-    },
+    #[snafu(display("Bad path: {:?}", pth))]
+    BadPath { pth: PathBuf },
+    #[snafu(display("Parse error: ``{}''", msg))]
+    FilterParseError { msg: String },
+    #[snafu(display("Invalid unquoted character {}", c))]
+    InvalidChar { c: u8 },
+    #[snafu(display("Missing closing quotes"))]
     NoClosingQuotes,
+    #[snafu(display("No command specified"))]
     NoCommand,
-    NotImplemented {
-        feature: String,
-    },
+    #[snafu(display("`{}' not implemented, yet", feature))]
+    NotImplemented { feature: String },
+    #[snafu(display("Can't operate on the current track when the player is stopped"))]
     PlayerStopped,
+    #[snafu(display("Trailing backslash"))]
     TrailingBackslash,
-    UnknownChannel {
-        chan: String,
-        back: Backtrace,
-    },
-    UnknownCommand {
-        name: String,
-        back: Backtrace,
-    },
+    #[snafu(display("We received messages for an unknown channel `{}`; this is likely a bug; please consider filing a report to sp1ff@pobox.com", chan))]
+    UnknownChannel { chan: String, backtrace: Backtrace },
+    #[snafu(display("We received an unknown message ``{}''", name))]
+    UnknownCommand { name: String, backtrace: Backtrace },
+    #[snafu(display("Client error: {}", source))]
     Client {
         source: crate::clients::Error,
-        back: Backtrace,
+        backtrace: Backtrace,
     },
+    #[snafu(display("Ratings eror: {}", source))]
     Ratings {
         source: crate::ratings::Error,
-        back: Backtrace,
+        backtrace: Backtrace,
     },
+    #[snafu(display("Playcount error: {}", source))]
     Playcount {
         source: crate::playcounts::Error,
-        back: Backtrace,
+        backtrace: Backtrace,
     },
+    #[snafu(display("Filter error: {}", source))]
     Filter {
         source: crate::filters_ast::Error,
-        back: Backtrace,
+        backtrace: Backtrace,
     },
+    #[snafu(display("Command error: {}", source))]
     Command {
         source: crate::commands::Error,
-        back: Backtrace,
+        backtrace: Backtrace,
     },
+    #[snafu(display("UTF8 error {} ({:#?})", source, buf))]
     Utf8 {
         source: std::str::Utf8Error,
         buf: Vec<u8>,
-        back: Backtrace,
+        backtrace: Backtrace,
     },
+    #[snafu(display("``{}''L {}", source, text))]
     ExpectedInt {
         source: std::num::ParseIntError,
         text: String,
-        back: Backtrace,
+        backtrace: Backtrace,
     },
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Error::BadPath { pth } => write!(f, "Bad path: {:?}", pth),
-            Error::FilterParseError { msg } => write!(f, "Parse error: ``{}''", msg),
-            Error::InvalidChar { c } => write!(f, "Invalid unquoted character {}", c),
-            Error::NoClosingQuotes => write!(f, "Missing closing quotes"),
-            Error::NoCommand => write!(f, "No command specified"),
-            Error::NotImplemented { feature } => write!(f, "`{}' not implemented, yet", feature),
-            Error::PlayerStopped => write!(
-                f,
-                "Can't operate on the current track when the player is stopped"
-            ),
-            Error::TrailingBackslash => write!(f, "Trailing backslash"),
-            Error::UnknownChannel { chan, back: _ } => write!(
-                f,
-                "We received messages for an unknown channel `{}'; this is likely a bug; please consider filing a report to sp1ff@pobox.com",
-                chan
-            ),
-            Error::UnknownCommand { name, back: _ } => {
-                write!(f, "We received an unknown message ``{}''", name)
-            }
-            Error::Client { source, back: _ } => write!(f, "Client error: {}", source),
-            Error::Ratings { source, back: _ } => write!(f, "Ratings eror: {}", source),
-            Error::Playcount { source, back: _ } => write!(f, "Playcount error: {}", source),
-            Error::Filter { source, back: _ } => write!(f, "Filter error: {}", source),
-            Error::Command { source, back: _ } => write!(f, "Command error: {}", source),
-            Error::Utf8 {
-                source,
-                buf,
-                back: _,
-            } => write!(f, "UTF8 error {} ({:#?})", source, buf),
-            Error::ExpectedInt {
-                source,
-                text,
-                back: _,
-            } => write!(f, "``{}''L {}", source, text),
-        }
-    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -313,8 +274,8 @@ impl<'a> Iterator for TokenIterator<'a> {
 #[cfg(test)]
 mod tokenize_tests {
 
-    use super::Result;
     use super::tokenize;
+    use super::Result;
 
     #[test]
     fn tokenize_smoke() {
@@ -432,18 +393,14 @@ where
     where
         E: Extend<PinnedTaggedCmdFuture>,
     {
-        let m = idle_client
-            .get_messages()
-            .await
-            .map_err(|err| Error::Client {
-                source: err,
-                back: Backtrace::new(),
-            })?;
+        let m = idle_client.get_messages().await.context(ClientSnafu)?;
         for (chan, msgs) in m {
             // Only supporting a single channel, ATM
-            (chan == command_chan).ok_or_else(|| Error::UnknownChannel {
-                chan: String::from(chan),
-                back: Backtrace::new(),
+            <bool as boolinator::Boolinator>::ok_or_else(chan == command_chan, || {
+                UnknownChannelSnafu {
+                    chan: String::from(chan),
+                }
+                .build()
             })?;
             for msg in msgs {
                 cmds.extend(self.process(msg, client, &state, stickers).await?);
@@ -485,27 +442,25 @@ where
         client: &mut Client,
         state: &PlayerStatus,
     ) -> Result<Option<PinnedTaggedCmdFuture>> {
-        let req = RatingRequest::try_from(msg).map_err(|err| Error::Ratings {
-            source: err,
-            back: Backtrace::new(),
-        })?;
+        let req = RatingRequest::try_from(msg).context(RatingsSnafu)?;
         let pathb = match req.track {
             RatedTrack::Current => match state {
                 PlayerStatus::Stopped => {
-                    return Err(Error::PlayerStopped {});
+                    return PlayerStoppedSnafu.fail();
                 }
                 PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => curr.file.clone(),
             },
             RatedTrack::File(p) => p,
             RatedTrack::Relative(_i) => {
-                return Err(Error::NotImplemented {
+                return NotImplementedSnafu {
                     feature: String::from("Relative track position"),
-                });
+                }
+                .fail();
             }
         };
         let path: &str = pathb
             .to_str()
-            .ok_or_else(|| Error::BadPath { pth: pathb.clone() })?;
+            .ok_or_else(|| BadPathSnafu { pth: pathb.clone() }.build())?;
         debug!("Setting a rating of {} for `{}'.", req.rating, path);
 
         Ok(set_rating(
@@ -518,10 +473,7 @@ where
             self.music_dir,
         )
         .await
-        .map_err(|err| Error::Ratings {
-            source: err,
-            back: Backtrace::new(),
-        })?)
+        .context(RatingsSnafu)?)
     }
 
     /// Handle `setpc': "PC( TRACK)?"
@@ -534,20 +486,14 @@ where
         let text = msg.trim();
         let (pc, track) = match text.find(char::is_whitespace) {
             Some(idx) => (
-                text[..idx]
-                    .parse::<usize>()
-                    .map_err(|err| Error::ExpectedInt {
-                        source: err,
-                        text: String::from(text),
-                        back: Backtrace::new(),
-                    })?,
+                text[..idx].parse::<usize>().context(ExpectedIntSnafu {
+                    text: String::from(text),
+                })?,
                 &text[idx + 1..],
             ),
             None => (
-                text.parse::<usize>().map_err(|err| Error::ExpectedInt {
-                    source: err,
+                text.parse::<usize>().context(ExpectedIntSnafu {
                     text: String::from(text),
-                    back: Backtrace::new(),
                 })?,
                 "",
             ),
@@ -555,13 +501,16 @@ where
         let file = if track.is_empty() {
             match state {
                 PlayerStatus::Stopped => {
-                    return Err(Error::PlayerStopped {});
+                    return PlayerStoppedSnafu.fail();
                 }
                 PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => curr
                     .file
                     .to_str()
-                    .ok_or_else(|| Error::BadPath {
-                        pth: curr.file.clone(),
+                    .ok_or_else(|| {
+                        BadPathSnafu {
+                            pth: curr.file.clone(),
+                        }
+                        .build()
                     })?
                     .to_string(),
             }
@@ -582,10 +531,7 @@ where
             self.music_dir,
         )
         .await
-        .map_err(|err| Error::Playcount {
-            source: err,
-            back: Backtrace::new(),
-        })?)
+        .context(PlaycountSnafu)?)
     }
 
     /// Handle `setlp': "LASTPLAYED( TRACK)?"
@@ -598,20 +544,14 @@ where
         let text = msg.trim();
         let (lp, track) = match text.find(char::is_whitespace) {
             Some(idx) => (
-                text[..idx]
-                    .parse::<u64>()
-                    .map_err(|err| Error::ExpectedInt {
-                        source: err,
-                        text: String::from(text),
-                        back: Backtrace::new(),
-                    })?,
+                text[..idx].parse::<u64>().context(ExpectedIntSnafu {
+                    text: String::from(text),
+                })?,
                 &text[idx + 1..],
             ),
             None => (
-                text.parse::<u64>().map_err(|err| Error::ExpectedInt {
-                    source: err,
+                text.parse::<u64>().context(ExpectedIntSnafu {
                     text: String::from(text),
-                    back: Backtrace::new(),
                 })?,
                 "",
             ),
@@ -619,13 +559,16 @@ where
         let file = if track.is_empty() {
             match state {
                 PlayerStatus::Stopped => {
-                    return Err(Error::PlayerStopped {});
+                    return PlayerStoppedSnafu.fail();
                 }
                 PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => curr
                     .file
                     .to_str()
-                    .ok_or_else(|| Error::BadPath {
-                        pth: curr.file.clone(),
+                    .ok_or_else(|| {
+                        BadPathSnafu {
+                            pth: curr.file.clone(),
+                        }
+                        .build()
                     })?
                     .to_string(),
             }
@@ -634,14 +577,10 @@ where
         };
         set_last_played(client, self.lastplayed_sticker, &file, lp)
             .await
-            .map_err(|err| Error::Playcount {
-                source: err,
-                back: Backtrace::new(),
-            })?;
+            .context(PlaycountSnafu)?;
         Ok(None)
     }
 
-    /// Handle `findadd': "FILTER [sort TYPE] [window START:END]"
     async fn findadd<'a>(
         &self,
         msg: String,
@@ -653,11 +592,7 @@ where
         let mut buf = msg.into_bytes();
         let args: VecDeque<&str> = tokenize(&mut buf)
             .map(|r| match r {
-                Ok(buf) => Ok(std::str::from_utf8(buf).map_err(|err| Error::Utf8 {
-                    source: err,
-                    buf: buf.to_vec(),
-                    back: Backtrace::new(),
-                })?),
+                Ok(buf) => Ok(std::str::from_utf8(buf).context(Utf8Snafu { buf: buf.to_vec() })?),
                 Err(err) => Err(err),
             })
             .collect::<Result<VecDeque<&str>>>()?;
@@ -673,9 +608,10 @@ where
         let ast = match ExpressionParser::new().parse(args[0]) {
             Ok(ast) => ast,
             Err(err) => {
-                return Err(Error::FilterParseError {
+                return FilterParseSnafu {
                     msg: format!("{}", err),
-                });
+                }
+                .fail();
             }
         };
 
@@ -684,10 +620,7 @@ where
         let mut results = Vec::new();
         for song in evaluate(&ast, true, client, stickers)
             .await
-            .map_err(|err| Error::Filter {
-                source: err,
-                back: Backtrace::new(),
-            })?
+            .context(FilterSnafu)?
         {
             results.push(client.add(&song).await);
         }
@@ -696,14 +629,10 @@ where
             .collect::<std::result::Result<Vec<()>, crate::clients::Error>>()
         {
             Ok(_) => Ok(None),
-            Err(err) => Err(Error::Client {
-                source: err,
-                back: Backtrace::new(),
-            }),
+            Err(err) => Err(ClientSnafu.into_error(err)),
         }
     }
 
-    /// Handle `searchadd': "FILTER [sort TYPE] [window START:END]"
     async fn searchadd<'a>(
         &self,
         msg: String,
@@ -715,11 +644,7 @@ where
         let mut buf = msg.into_bytes();
         let args: VecDeque<&str> = tokenize(&mut buf)
             .map(|r| match r {
-                Ok(buf) => Ok(std::str::from_utf8(buf).map_err(|err| Error::Utf8 {
-                    source: err,
-                    buf: buf.to_vec(),
-                    back: Backtrace::new(),
-                })?),
+                Ok(buf) => Ok(std::str::from_utf8(buf).context(Utf8Snafu { buf: buf.to_vec() })?),
                 Err(err) => Err(err),
             })
             .collect::<Result<VecDeque<&str>>>()?;
@@ -735,9 +660,10 @@ where
         let ast = match ExpressionParser::new().parse(args[0]) {
             Ok(ast) => ast,
             Err(err) => {
-                return Err(Error::FilterParseError {
+                return FilterParseSnafu {
                     msg: format!("{}", err),
-                });
+                }
+                .fail();
             }
         };
 
@@ -746,10 +672,7 @@ where
         let mut results = Vec::new();
         for song in evaluate(&ast, false, client, stickers)
             .await
-            .map_err(|err| Error::Filter {
-                source: err,
-                back: Backtrace::new(),
-            })?
+            .context(FilterSnafu)?
         {
             results.push(client.add(&song).await);
         }
@@ -758,14 +681,10 @@ where
             .collect::<std::result::Result<Vec<()>, crate::clients::Error>>()
         {
             Ok(_) => Ok(None),
-            Err(err) => Err(Error::Client {
-                source: err,
-                back: Backtrace::new(),
-            }),
+            Err(err) => Err(ClientSnafu.into_error(err)),
         }
     }
 
-    /// Handle generalized commands
     async fn maybe_handle_generalized_command(
         &self,
         msg: String,
@@ -774,11 +693,7 @@ where
         let mut buf = msg.into_bytes();
         let mut args: VecDeque<&str> = tokenize(&mut buf)
             .map(|r| match r {
-                Ok(buf) => Ok(std::str::from_utf8(buf).map_err(|err| Error::Utf8 {
-                    source: err,
-                    buf: buf.to_vec(),
-                    back: Backtrace::new(),
-                })?),
+                Ok(buf) => Ok(std::str::from_utf8(buf).context(Utf8Snafu { buf: buf.to_vec() })?),
                 Err(err) => Err(err),
             })
             .collect::<Result<VecDeque<&str>>>()?;
@@ -786,23 +701,19 @@ where
         let cmd = match args.pop_front() {
             Some(x) => x,
             None => {
-                return Err(Error::NoCommand);
+                return NoCommandSnafu {}.fail();
             }
         };
-        let gen_cmd = self
-            .gen_cmds
-            .get(cmd)
-            .ok_or_else(|| Error::UnknownCommand {
+        let gen_cmd = self.gen_cmds.get(cmd).ok_or_else(|| {
+            UnknownCommandSnafu {
                 name: String::from(cmd),
-                back: Backtrace::new(),
-            })?;
+            }
+            .build()
+        })?;
         Ok(Some(
             gen_cmd
                 .execute(args.iter().cloned(), &state)
-                .map_err(|err| Error::Command {
-                    source: err,
-                    back: Backtrace::new(),
-                })?,
+                .context(CommandSnafu)?,
         ))
     }
 }

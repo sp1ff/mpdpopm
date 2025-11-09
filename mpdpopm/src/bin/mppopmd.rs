@@ -30,20 +30,19 @@ use mpdpopm::config::Config;
 use mpdpopm::mpdpopm;
 use mpdpopm::vars::LOCALSTATEDIR;
 
-use backtrace::Backtrace;
 use clap::{Arg, ArgAction, Command, value_parser};
 use errno::errno;
 use lazy_static::lazy_static;
 use libc::{
     F_TLOCK, close, dup, exit, fork, getdtablesize, getpid, lockf, open, setsid, umask, write,
 };
+use snafu::{ResultExt, Snafu};
 use tokio::sync::mpsc;
 use tracing::{error, info, level_filters::LevelFilter};
 use tracing_subscriber::{EnvFilter, Layer, Registry, fmt::MakeWriter, layer::SubscriberExt};
 
 use std::{
     ffi::CString,
-    fmt,
     fs::OpenOptions,
     io,
     path::{Path, PathBuf},
@@ -54,76 +53,53 @@ use std::{
 //                                 mppopmd application Error type                                 //
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Debug, Snafu)]
 #[non_exhaustive]
 pub enum Error {
+    #[snafu(display("No configuration file given"))]
     NoConfigArg,
+    #[snafu(display("Configuration error ({config:?}): {cause}"))]
     NoConfig {
         config: std::path::PathBuf,
         cause: std::io::Error,
     },
+    #[snafu(display("Filter error: {source}"))]
     Filter {
         source: tracing_subscriber::filter::FromEnvError,
-        back: Backtrace,
+        backtrace: snafu::Backtrace,
     },
+    #[snafu(display("When forking, got errno {errno}"))]
     Fork {
         errno: errno::Errno,
-        back: Backtrace,
+        backtrace: snafu::Backtrace,
     },
+    #[snafu(display("Path contains a null character"))]
     PathContainsNull {
-        back: Backtrace,
+        backtrace: snafu::Backtrace,
     },
+    #[snafu(display("While opening lock file, got errno {errno}"))]
     OpenLockFile {
         errno: errno::Errno,
-        back: Backtrace,
+        backtrace: snafu::Backtrace,
     },
+    #[snafu(display("While locking the lock file, got errno {errno}"))]
     LockFile {
         errno: errno::Errno,
-        back: Backtrace,
+        backtrace: snafu::Backtrace,
     },
+    #[snafu(display("While writing pid file, got errno {errno}"))]
     WritePid {
         errno: errno::Errno,
-        back: Backtrace,
+        backtrace: snafu::Backtrace,
     },
+    #[snafu(display("Configuration error: {source}"))]
     Config {
         source: crate::config::Error,
-        back: Backtrace,
     },
+    #[snafu(display("mpdpopm error: {source}"))]
     MpdPopm {
         source: mpdpopm::Error,
-        back: Backtrace,
     },
-}
-
-impl std::fmt::Display for Error {
-    #[allow(unreachable_patterns)] // the _ arm is *currently* unreachable
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Error::NoConfigArg => write!(f, "No configuration file given"),
-            Error::NoConfig { config, cause } => {
-                write!(f, "Configuration error ({:?}): {}", config, cause)
-            }
-            Error::Fork { errno, back: _ } => write!(f, "When forking, got errno {}", errno),
-            Error::PathContainsNull { back: _ } => write!(f, "Path contains a null character"),
-            Error::OpenLockFile { errno, back: _ } => {
-                write!(f, "While opening lock file, got errno {}", errno)
-            }
-            Error::LockFile { errno, back: _ } => {
-                write!(f, "While locking the lock file, got errno {}", errno)
-            }
-            Error::WritePid { errno, back: _ } => {
-                write!(f, "While writing pid file, got errno {}", errno)
-            }
-            Error::Config { source, back: _ } => write!(f, "Configuration error: {}", source),
-            Error::MpdPopm { source, back: _ } => write!(f, "mpdpopm error: {}", source),
-            _ => write!(f, "Unknown mppopmd error"),
-        }
-    }
-}
-
-impl fmt::Debug for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
-    }
 }
 
 type Result = std::result::Result<(), Error>;
@@ -264,10 +240,7 @@ fn daemonize() -> Result {
         // 2. guarantees that the child is not a process group leader
         let pid = fork();
         if pid < 0 {
-            return Err(Error::Fork {
-                errno: errno(),
-                back: Backtrace::new(),
-            });
+            return Err(ForkSnafu { errno: errno() }.build());
         } else if pid != 0 {
             // We are the parent process-- exit.
             exit(0);
@@ -284,10 +257,7 @@ fn daemonize() -> Result {
         // never regain a controlling tty.
         let pid = fork();
         if pid < 0 {
-            return Err(Error::Fork {
-                errno: errno(),
-                back: Backtrace::new(),
-            });
+            return Err(ForkSnafu { errno: errno() }.build());
         } else if pid != 0 {
             // We are the parent process-- exit.
             exit(0);
@@ -322,16 +292,10 @@ fn daemonize() -> Result {
             0o640,
         );
         if -1 == fd {
-            return Err(Error::OpenLockFile {
-                errno: errno(),
-                back: Backtrace::new(),
-            });
+            return Err(OpenLockFileSnafu { errno: errno() }.build());
         }
         if lockf(fd, F_TLOCK, 0) < 0 {
-            return Err(Error::LockFile {
-                errno: errno(),
-                back: Backtrace::new(),
-            });
+            return Err(LockFileSnafu { errno: errno() }.build());
         }
 
         // "File locks are released as soon as the process holding the locks closes some file
@@ -342,10 +306,7 @@ fn daemonize() -> Result {
         let pid_length = pid_buf.len();
         let pid_c = CString::new(pid_buf).unwrap();
         if write(fd, pid_c.as_ptr() as *const libc::c_void, pid_length) < pid_length as isize {
-            return Err(Error::WritePid {
-                errno: errno(),
-                back: Backtrace::new(),
-            });
+            return Err(WritePidSnafu { errno: errno() }.build());
         }
     }
 
@@ -421,10 +382,7 @@ commands to keep your tags up-to-date.",
     let cfg = match std::fs::read_to_string(cfgpth) {
         // The config file (defaulted or not) existed & we were able to read its contents-- parse
         // em!
-        Ok(text) => config::from_str(&text).map_err(|err| Error::Config {
-            source: err,
-            back: Backtrace::new(),
-        })?,
+        Ok(text) => config::from_str(&text).context(ConfigSnafu)?,
         // The config file (defaulted or not) either didn't exist, or we were unable to read its
         // contents...
         Err(err) => match (err.kind(), matches.value_source("config").unwrap()) {
@@ -456,10 +414,7 @@ commands to keep your tags up-to-date.",
     let filter = EnvFilter::builder()
         .with_default_directive(lf.into())
         .from_env()
-        .map_err(|err| Error::Filter {
-            source: err,
-            back: Backtrace::new(),
-        })?;
+        .context(FilterSnafu)?;
 
     let (formatter, reopen): (
         Box<dyn Layer<Registry> + Send + Sync>,
@@ -498,8 +453,5 @@ commands to keep your tags up-to-date.",
     let rt = tokio::runtime::Runtime::new().unwrap();
     // and invoke `mpdpopm'.
     rt.block_on(mpdpopm(cfg, reopen))
-        .map_err(|err| Error::MpdPopm {
-            source: err,
-            back: Backtrace::new(),
-        })
+        .context(MpdPopmSnafu)
 }

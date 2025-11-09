@@ -53,13 +53,13 @@ use filters_ast::FilterStickerNames;
 use messages::MessageProcessor;
 use playcounts::PlayState;
 
-use backtrace::Backtrace;
 use futures::{
     future::FutureExt,
     pin_mut, select,
     stream::{FuturesUnordered, StreamExt},
 };
 use libc::getpid;
+use snafu::{prelude::*, Backtrace};
 use tokio::{
     signal,
     signal::unix::{SignalKind, signal},
@@ -72,43 +72,23 @@ use std::path::PathBuf;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug)]
+#[derive(Debug, Snafu)]
 #[non_exhaustive]
 pub enum Error {
-    BadPath {
-        pth: PathBuf,
-    },
+    #[snafu(display("Bad path: {:?}", pth))]
+    BadPath { pth: PathBuf },
+
+    #[snafu(display("Client error: {}", source))]
     Client {
         source: crate::clients::Error,
-        back: Backtrace,
+        backtrace: Backtrace,
     },
+
+    #[snafu(display("Playcount error: {}", source))]
     Playcounts {
         source: crate::playcounts::Error,
-        back: Backtrace,
+        backtrace: Backtrace,
     },
-}
-
-impl std::fmt::Display for Error {
-    #[allow(unreachable_patterns)] // the _ arm is *currently* unreachable
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Error::BadPath { pth } => write!(f, "Bad path: {:?}", pth),
-            Error::Client { source, back: _ } => write!(f, "Client error: {}", source),
-            Error::Playcounts { source, back: _ } => write!(f, "Playcount error: {}", source),
-        }
-    }
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match &self {
-            Error::Client {
-                ref source,
-                back: _,
-            } => Some(source),
-            _ => None,
-        }
-    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -125,9 +105,9 @@ pub async fn mpdpopm(
     info!("mpdpopm {} beginning (PID {}).", vars::VERSION, pid);
 
     // We need the music directory to be convertible to string; check that first-off:
-    let music_dir = cfg.local_music_dir.to_str().ok_or_else(|| Error::BadPath {
+    let music_dir = cfg.local_music_dir.to_str().ok_or_else(|| BadPathSnafu {
         pth: cfg.local_music_dir.clone(),
-    })?;
+    }.build())?;
 
     let filter_stickers = FilterStickerNames::new(
         &cfg.rating_sticker,
@@ -136,18 +116,12 @@ pub async fn mpdpopm(
     );
 
     let mut client = match cfg.conn {
-        Connection::Local { ref path } => {
-            Client::open(path).await.map_err(|err| Error::Client {
-                source: err,
-                back: Backtrace::new(),
-            })?
-        }
+        Connection::Local { ref path } => Client::open(path)
+            .await
+            .context(ClientSnafu)?,
         Connection::TCP { ref host, port } => Client::connect(format!("{}:{}", host, port))
             .await
-            .map_err(|err| Error::Client {
-            source: err,
-            back: Backtrace::new(),
-        })?,
+            .context(ClientSnafu)?,
     };
 
     let mut state = PlayState::new(
@@ -157,33 +131,21 @@ pub async fn mpdpopm(
         cfg.played_thresh,
     )
     .await
-    .map_err(|err| Error::Client {
-        source: err,
-        back: Backtrace::new(),
-    })?;
+    .context(ClientSnafu)?;
 
     let mut idle_client = match cfg.conn {
-        Connection::Local { ref path } => {
-            IdleClient::open(path).await.map_err(|err| Error::Client {
-                source: err,
-                back: Backtrace::new(),
-            })?
-        }
+        Connection::Local { ref path } => IdleClient::open(path)
+            .await
+            .context(ClientSnafu)?,
         Connection::TCP { ref host, port } => IdleClient::connect(format!("{}:{}", host, port))
             .await
-            .map_err(|err| Error::Client {
-                source: err,
-                back: Backtrace::new(),
-            })?,
+            .context(ClientSnafu)?,
     };
 
     idle_client
         .subscribe(&cfg.commands_chan)
         .await
-        .map_err(|err| Error::Client {
-            source: err,
-            back: Backtrace::new(),
-        })?;
+        .context(ClientSnafu)?;
 
     let mut hup = signal(SignalKind::hangup()).unwrap();
     let mut kill = signal(SignalKind::terminate()).unwrap();
@@ -256,9 +218,11 @@ pub async fn mpdpopm(
                                                         &mut cfg.playcount_command_args
                                                         .iter()
                                                         .cloned(),
-                                                        music_dir).await.map_err(|err| Error::Playcounts{source: err, back: Backtrace::new()})? {
-                            cmds.push(fut);
-                        }
+                                                        music_dir)
+                            .await
+                            .context(PlaycountsSnafu)? {
+                                cmds.push(fut);
+                            }
                     },
                     next = cmds.next() => match next {
                         Some(out) => {
@@ -266,10 +230,7 @@ pub async fn mpdpopm(
                             match out.upd {
                                 Some(uri) => {
                                     debug!("{} needs to be updated", uri);
-                                    client.update(&uri).await.map_err(|err| Error::Client {
-                                        source: err,
-                                        back: Backtrace::new(),
-                                    })?;
+                                    client.update(&uri).await.context(ClientSnafu)?;
                                 },
                                 None => debug!("No database update needed"),
                             }
@@ -287,9 +248,11 @@ pub async fn mpdpopm(
                                                                 &mut cfg.playcount_command_args
                                                                 .iter()
                                                                 .cloned(),
-                                                                music_dir).await.map_err(|err| Error::Playcounts{source: err, back: Backtrace::new()})? {
-                                    cmds.push(fut);
-                                }
+                                                                music_dir)
+                                    .await
+                                    .context(PlaycountsSnafu)? {
+                                        cmds.push(fut);
+                                    }
                             } else if subsys == IdleSubSystem::Message {
                                 msg_check_needed = true;
                             }
