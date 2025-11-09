@@ -34,12 +34,12 @@
 //! described as:
 //!
 //! 1. the command name: commands shall be named according to the regular expression:
-//!    [a-zA-Z][-a-zA-Z0-9]+
+//!    \[a-zA-Z\]\[-a-zA-Z0-9\]+
 //!
 //! 2. command parameters: a command may take parameters; the parameters are defined by an array
 //!    of zero or more instances of:
 //!
-//!    - parameter name: parameter names shall match the regex: [a-zA-Z][-a-zA-Z0-9]+
+//!    - parameter name: parameter names shall match the regex: \[a-zA-Z\]\[-a-zA-Z0-9\]+
 //!
 //!    - parameter type: parameters may be a:
 //!
@@ -119,7 +119,7 @@
 
 use crate::clients::PlayerStatus;
 
-use backtrace::Backtrace;
+use snafu::{Backtrace, OptionExt, prelude::*};
 use futures::future::Future;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
@@ -134,61 +134,38 @@ use std::path::PathBuf;
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// An mpdpopm command error
-#[derive(Debug)]
+#[derive(Debug, Snafu)]
 #[non_exhaustive]
 pub enum Error {
+    #[snafu(display("Bad path: {:?}", pth))]
     BadPath {
         pth: PathBuf,
-        back: backtrace::Backtrace,
+        backtrace: Backtrace,
     },
+    #[snafu(display("Duplicate track argument at index {}", index))]
     DuplicateTrackArgument {
         index: usize,
-        back: backtrace::Backtrace,
+        backtrace: Backtrace,
     },
+    #[snafu(display("Missing actual parameter at index {}", index))]
     MissingParameter {
         index: usize,
-        back: backtrace::Backtrace,
+        backtrace: Backtrace,
     },
+    #[snafu(display("No current track"))]
     NoCurrentTrack,
+    #[snafu(display("No track to update"))]
     NoTrackToUpdate,
+    #[snafu(display("Trailing percent in template ``{}''", template))]
     TrailingPercent {
         template: String,
-        back: backtrace::Backtrace,
+        backtrace: Backtrace,
     },
+    #[snafu(display("Unknown parameter ``{}''", param))]
     UnknownParameter {
         param: String,
-        back: backtrace::Backtrace,
+        backtrace: Backtrace,
     },
-}
-
-impl std::fmt::Display for Error {
-    #[allow(unreachable_patterns)] // the _ arm is *currently* unreachable
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Error::BadPath { pth, back: _ } => write!(f, "Bad path: {:?}", pth),
-            Error::DuplicateTrackArgument { index, back: _ } => {
-                write!(f, "Duplicate track argument at index {}", index)
-            }
-            Error::MissingParameter { index, back: _ } => {
-                write!(f, "Missing actual parameter at index {}", index)
-            }
-            Error::NoCurrentTrack => write!(f, "No current track"),
-            Error::NoTrackToUpdate => write!(f, "No track to update"),
-            Error::TrailingPercent { template, back: _ } => {
-                write!(f, "Trailing percent in template ``{}''", template)
-            }
-            Error::UnknownParameter { param, back: _ } => {
-                write!(f, "Unknown parameter ``{}''", param)
-            }
-            _ => write!(f, "Unknown commands error"),
-        }
-    }
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Option::None
-    }
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -212,9 +189,8 @@ pub fn process_replacements(templ: &str, params: &HashMap<String, String>) -> Re
         if a != '%' {
             out.push(a);
         } else {
-            let b = c.peek().ok_or_else(|| Error::TrailingPercent {
+            let b = c.peek().context(TrailingPercentSnafu {
                 template: String::from(templ),
-                back: Backtrace::new(),
             })?;
             if *b == '%' {
                 c.next();
@@ -232,9 +208,8 @@ pub fn process_replacements(templ: &str, params: &HashMap<String, String>) -> Re
                         }
                     })
                     .collect();
-                out.push_str(params.get(&t).ok_or_else(|| Error::UnknownParameter {
+                out.push_str(params.get(&t).context(UnknownParameterSnafu {
                     param: String::from(t),
-                    back: Backtrace::new(),
                 })?);
                 match terminal {
                     Some(x) => out.push(x),
@@ -294,7 +269,7 @@ where
             info!("Running command `{:#?}' with args {:#?}", &cmd, &a);
             Ok(Box::pin(Command::new(&cmd).args(a).output()))
         }
-        Err(err) => Err(Error::from(err)),
+        Err(err) => Err(err),
     }
 }
 
@@ -455,9 +430,8 @@ impl GeneralizedCommand {
                 cfp.push(&curr.file);
                 let cfs = cfp
                     .to_str()
-                    .ok_or_else(|| Error::BadPath {
+                    .context(BadPathSnafu {
                         pth: cfp.clone(),
-                        back: Backtrace::new(),
                     })?
                     .to_string();
                 params.insert("current-file".to_string(), cfs.clone());
@@ -481,26 +455,23 @@ impl GeneralizedCommand {
                     // Slightly more complicated, replacement parameter %i will be "", but only
                     // if this formal parameter is allowed to be defaulted.
                     if i < self.default_after {
-                        return Err(Error::MissingParameter {
+                        return Err(MissingParameterSnafu {
                             index: i,
-                            back: Backtrace::new(),
-                        });
+                        }.build());
                     }
                     debug!("%{} is: nil", i);
                     params.insert(format!("{}", i), String::from(""));
                 }
                 (FormalParameter::Track, Some(token)) => {
                     if saw_track {
-                        return Err(Error::DuplicateTrackArgument {
+                        return Err(DuplicateTrackArgumentSnafu {
                             index: i,
-                            back: Backtrace::new(),
-                        });
+                        }.build());
                     }
                     let mut ffp = self.music_dir.clone();
                     ffp.push(PathBuf::from(token));
-                    let ffs = ffp.to_str().ok_or_else(|| Error::BadPath {
+                    let ffs = ffp.to_str().context(BadPathSnafu {
                         pth: ffp.clone(),
-                        back: Backtrace::new(),
                     })?;
                     params.insert(format!("{}", i), ffs.to_string());
                     params.insert("full-file".to_string(), ffs.to_string());
@@ -509,16 +480,14 @@ impl GeneralizedCommand {
                 }
                 (FormalParameter::Track, None) => {
                     if i < self.default_after {
-                        return Err(Error::MissingParameter {
+                        return Err(MissingParameterSnafu {
                             index: i,
-                            back: Backtrace::new(),
-                        });
+                        }.build());
                     }
                     if saw_track {
-                        return Err(Error::DuplicateTrackArgument {
+                        return Err(DuplicateTrackArgumentSnafu {
                             index: i,
-                            back: Backtrace::new(),
-                        });
+                        }.build());
                     }
                     match &current_file {
                         Some(cf) => {
@@ -527,7 +496,7 @@ impl GeneralizedCommand {
                             params.insert("full-file".to_string(), cf.to_string());
                         }
                         None => {
-                            return Err(Error::NoCurrentTrack);
+                            return Err(NoCurrentTrackSnafu.build());
                         }
                     }
                     saw_track = true;
@@ -555,7 +524,7 @@ impl GeneralizedCommand {
                         Some(x) => Some(format!("song {}", x)),
                         None => match current_file {
                             Some(x) => Some(format!("song {}", x)),
-                            None => return Err(Error::NoTrackToUpdate),
+                            None => return Err(NoTrackToUpdateSnafu.build()),
                         },
                     }
                 }

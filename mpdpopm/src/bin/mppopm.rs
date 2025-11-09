@@ -32,86 +32,68 @@ use mpdpopm::{
     ratings::get_rating,
 };
 
-use backtrace::Backtrace;
 use clap::{Arg, ArgAction, Command, value_parser};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
+use snafu::{ResultExt, Snafu};
 use tracing::{debug, info, level_filters::LevelFilter, trace};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt};
 
-use std::{fmt, path::PathBuf};
+use std::path::PathBuf;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                 mppopm application Error Type                                  //
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Debug, Snafu)]
 #[non_exhaustive]
 pub enum Error {
+    #[snafu(display("No sub-command given"))]
     NoSubCommand,
+    #[snafu(display("No argument given for the configuration option"))]
     NoConfigArg,
+    #[snafu(display("No rating supplied"))]
     NoRating,
+    #[snafu(display("No play count supplied"))]
     NoPlayCount,
+    #[snafu(display("No last played timestamp given"))]
     NoLastPlayed,
+    #[snafu(display("Bad config ({config:?}): {cause}"))]
     NoConfig {
         config: std::path::PathBuf,
         cause: std::io::Error,
     },
+    #[snafu(display("The player is stopped"))]
     PlayerStopped,
+    #[snafu(display("Bad path: {path:?}"))]
     BadPath {
         path: PathBuf,
-        back: Backtrace,
+        backtrace: snafu::Backtrace,
     },
+    #[snafu(display("No playlist given"))]
     NoPlaylist,
+    #[snafu(display("Client error: {source}"))]
     Client {
         source: mpdpopm::clients::Error,
-        back: Backtrace,
     },
+    #[snafu(display("Rating error: {source}"))]
     Ratings {
         source: mpdpopm::ratings::Error,
-        back: Backtrace,
     },
+    #[snafu(display("Playcount error: {source}"))]
     Playcounts {
         source: mpdpopm::playcounts::Error,
-        back: Backtrace,
     },
+    #[snafu(display("Expected integer: {source}"))]
     ExpectedInt {
         source: std::num::ParseIntError,
-        back: Backtrace,
+        backtrace: snafu::Backtrace,
     },
+    #[snafu(display("Error reading configuration: {source}"))]
     Config {
         source: serde_lexpr::Error,
-        back: Backtrace,
+        backtrace: snafu::Backtrace,
     },
-}
-
-impl fmt::Display for Error {
-    #[allow(unreachable_patterns)] // the _ arm is *currently* unreachable
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Error::NoSubCommand => write!(f, "No sub-command given"),
-            Error::NoConfigArg => write!(f, "No argument given for the configuration option"),
-            Error::NoRating => write!(f, "No rating supplied"),
-            Error::NoPlayCount => write!(f, "No play count supplied"),
-            Error::NoLastPlayed => write!(f, "No last played timestamp given"),
-            Error::NoConfig { config, cause } => write!(f, "Bad config ({:?}): {}", config, cause),
-            Error::PlayerStopped => write!(f, "The player is stopped"),
-            Error::BadPath { path, back: _ } => write!(f, "Bad path: {:?}", path),
-            Error::NoPlaylist => write!(f, "No playlist given"),
-            Error::Client { source, back: _ } => write!(f, "Client error: {}", source),
-            Error::Ratings { source, back: _ } => write!(f, "Rating error: {}", source),
-            Error::Playcounts { source, back: _ } => write!(f, "Playcount error: {}", source),
-            Error::ExpectedInt { source, back: _ } => write!(f, "Expected integer: {}", source),
-            Error::Config { source, back: _ } => {
-                write!(f, "Error reading configuration: {}", source)
-            }
-        }
-    }
-}
-
-impl fmt::Debug for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
-    }
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -172,17 +154,13 @@ async fn map_tracks<'a, Iter: Iterator<Item = &'a String>>(
     let files = match args {
         Some(iter) => iter.cloned().collect(),
         None => {
-            let file = match client.status().await.map_err(|err| Error::Client {
-                source: err,
-                back: Backtrace::new(),
-            })? {
+            let file = match client.status().await.context(ClientSnafu)? {
                 PlayerStatus::Play(curr) | PlayerStatus::Pause(curr) => curr
                     .file
                     .to_str()
-                    .ok_or_else(|| Error::BadPath {
+                    .ok_or_else(|| BadPathSnafu {
                         path: curr.file.clone(),
-                        back: Backtrace::new(),
-                    })?
+                    }.build())?
                     .to_string(),
                 PlayerStatus::Stopped => {
                     return Err(Error::PlayerStopped);
@@ -209,10 +187,7 @@ async fn get_ratings<'a, Iter: Iterator<Item = &'a String>>(
     for file in map_tracks(client, tracks).await? {
         let rating = get_rating(client, sticker, &file)
             .await
-            .map_err(|err| Error::Ratings {
-                source: err,
-                back: Backtrace::new(),
-            })?;
+            .context(RatingsSnafu)?;
         ratings.push((file, rating));
     }
 
@@ -241,10 +216,7 @@ async fn set_rating(
     client
         .send_message(chan, &cmd)
         .await
-        .map_err(|err| Error::Client {
-            source: err,
-            back: Backtrace::new(),
-        })?;
+        .context(ClientSnafu)?;
 
     match arg {
         Some(uri) => info!("Set the rating for \"{}\" to \"{}\".", uri, rating),
@@ -265,10 +237,7 @@ async fn get_play_counts<'a, Iter: Iterator<Item = &'a String>>(
     for file in map_tracks(client, tracks).await? {
         let playcount = match get_play_count(client, sticker, &file)
             .await
-            .map_err(|err| Error::Playcounts {
-                source: err,
-                back: Backtrace::new(),
-            })? {
+            .context(PlaycountsSnafu)? {
             Some(pc) => pc,
             None => 0,
         };
@@ -300,10 +269,7 @@ async fn set_play_counts(
     client
         .send_message(chan, &cmd)
         .await
-        .map_err(|err| Error::Client {
-            source: err,
-            back: Backtrace::new(),
-        })?;
+        .context(ClientSnafu)?;
 
     match arg {
         Some(uri) => info!("Set the playcount for \"{}\" to \"{}\".", uri, playcount),
@@ -327,10 +293,7 @@ async fn get_last_playeds<'a, Iter: Iterator<Item = &'a String>>(
     for file in map_tracks(client, tracks).await? {
         let lastplayed = get_last_played(client, sticker, &file)
             .await
-            .map_err(|err| Error::Playcounts {
-                source: err,
-                back: Backtrace::new(),
-            })?;
+            .context(PlaycountsSnafu)?;
         lastplayeds.push((file, lastplayed));
     }
 
@@ -372,10 +335,7 @@ async fn set_last_playeds(
     client
         .send_message(chan, &cmd)
         .await
-        .map_err(|err| Error::Client {
-            source: err,
-            back: Backtrace::new(),
-        })?;
+        .context(ClientSnafu)?;
 
     match arg {
         Some(uri) => info!("Set last played for \"{}\" to \"{}\".", uri, lastplayed),
@@ -393,10 +353,7 @@ async fn get_playlists(client: &mut Client) -> Result<()> {
     let mut pls = client
         .get_stored_playlists()
         .await
-        .map_err(|err| Error::Client {
-            source: err,
-            back: Backtrace::new(),
-        })?;
+        .context(ClientSnafu)?;
     pls.sort();
     println!("Stored playlists:");
     for pl in pls {
@@ -413,10 +370,7 @@ async fn findadd(client: &mut Client, chan: &str, filter: &str, case: bool) -> R
     client
         .send_message(chan, &cmd)
         .await
-        .map_err(|err| Error::Client {
-            source: err,
-            back: Backtrace::new(),
-        })?;
+        .context(ClientSnafu)?;
     Ok(())
 }
 
@@ -434,10 +388,7 @@ where
             ),
         )
         .await
-        .map_err(|err| Error::Client {
-            source: err,
-            back: Backtrace::new(),
-        })?;
+        .context(ClientSnafu)?;
     Ok(())
 }
 
@@ -695,10 +646,7 @@ async fn main() -> Result<()> {
     let mut cfg = match std::fs::read_to_string(cfgpth) {
         // The config file (defaulted or not) existed & we were able to read its contents-- parse
         // em!
-        Ok(text) => serde_lexpr::from_str(&text).map_err(|err| Error::Config {
-            source: err,
-            back: Backtrace::new(),
-        })?,
+        Ok(text) => serde_lexpr::from_str(&text).context(ConfigSnafu)?,
         // The config file (defaulted or not) either didn't exist, or we were unable to read its
         // contents...
         Err(err) => match (err.kind(), matches.value_source("config").unwrap()) {
@@ -744,10 +692,7 @@ async fn main() -> Result<()> {
         None => {
             if cfg.port == 0 {
                 cfg.port = match std::env::var("MPD_PORT") {
-                    Ok(port) => port.parse::<u16>().map_err(|err| Error::ExpectedInt {
-                        source: err,
-                        back: Backtrace::new(),
-                    })?,
+                    Ok(port) => port.parse::<u16>().context(ExpectedIntSnafu)?,
                     Err(_) => 6600,
                 }
             }
@@ -782,10 +727,7 @@ async fn main() -> Result<()> {
     // Whatever we do, we're going to need a Client, so whip one up now:
     let mut client = Client::connect(format!("{}:{}", cfg.host, cfg.port))
         .await
-        .map_err(|err| Error::Client {
-            source: err,
-            back: Backtrace::new(),
-        })?;
+        .context(ClientSnafu)?;
 
     if let Some(subm) = matches.subcommand_matches("get-rating") {
         return Ok(get_ratings(
@@ -821,10 +763,7 @@ async fn main() -> Result<()> {
             subm.get_one::<String>("play-count")
                 .ok_or_else(|| Error::NoPlayCount {})?
                 .parse::<usize>()
-                .map_err(|err| Error::ExpectedInt {
-                    source: err,
-                    back: Backtrace::new(),
-                })?,
+                .context(ExpectedIntSnafu)?,
             subm.get_one::<String>("track")
                 .as_deref()
                 .map(|x| x.as_str()),
@@ -845,10 +784,7 @@ async fn main() -> Result<()> {
             subm.get_one::<String>("last-played")
                 .ok_or_else(|| Error::NoLastPlayed {})?
                 .parse::<u64>()
-                .map_err(|err| Error::ExpectedInt {
-                    source: err,
-                    back: Backtrace::new(),
-                })?,
+                .context(ExpectedIntSnafu)?,
             subm.get_one::<String>("track")
                 .as_deref()
                 .map(|x| x.as_str()),
