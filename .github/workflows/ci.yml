@@ -107,14 +107,37 @@ jobs:
           brew install autoconf automake emacs
           brew install --cask basictex
 
+      - name: Seed the mirror list
+        shell: bash
+        run: |
+          echo "MIRROR_IDX=0" >> "$GITHUB_ENV"
+
+      - name: Download a modern version of automake
+        uses: nick-fields/retry@v3
+        with:
+          timeout_seconds: 120
+          max_attempts: 3
+          command: |
+            mirrors=("https://mirrors.ocf.berkeley.edu/gnu/"  # California
+                     "ftp://mirror.keystealth.org/gnu/"       # California
+                     "https://ftp.gnu.org/gnu"
+                     "https://mirror2.evolution-host.com/gnu" # Canada
+                     "https://mirror.freedif.org/GNU/"        # Singapore
+                     "https://mirror.ossplanet.net/gnu/")     # Taiwan
+            if curl -L --connect-timeout 60 -o /tmp/texinfo-7.2.tar.xz ${mirrors[$MIRROR_IDX]}/texinfo/texinfo-7.2.tar.gz; then
+                echo "Successful automake download"
+                exit 0
+            fi
+            MIRROR_IDX=$((MIRROR_IDX+1))
+            MIRROR_IDX=$(($MIRROR_IDX % ${#mirrors[@]}))
+            echo "MIRROR_IDX=$MIRROR_IDX" >> "$GITHUB_ENV"
+
     - name: Install a modern version of Texinfo
       if: matrix.os == 'macos-latest'
       shell: bash
       run: |
           set -x
-          mkdir tmp && cd tmp
-          # TODO(sp1ff): cache this
-          curl -L -O https://ftp.gnu.org/gnu/texinfo/texinfo-7.2.tar.gz
+          cd /tmp
           tar xf texinfo-7.2.tar.gz
           cd texinfo-7.2
           ./configure
