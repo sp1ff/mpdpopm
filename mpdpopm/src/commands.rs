@@ -119,9 +119,9 @@
 
 use crate::clients::PlayerStatus;
 
-use snafu::{Backtrace, OptionExt, prelude::*};
 use futures::future::Future;
 use serde::{Deserialize, Serialize};
+use snafu::{prelude::*, Backtrace, OptionExt};
 use tokio::process::Command;
 use tracing::{debug, info};
 
@@ -138,20 +138,11 @@ use std::path::PathBuf;
 #[non_exhaustive]
 pub enum Error {
     #[snafu(display("Bad path: {:?}", pth))]
-    BadPath {
-        pth: PathBuf,
-        backtrace: Backtrace,
-    },
+    BadPath { pth: PathBuf, backtrace: Backtrace },
     #[snafu(display("Duplicate track argument at index {}", index))]
-    DuplicateTrackArgument {
-        index: usize,
-        backtrace: Backtrace,
-    },
+    DuplicateTrackArgument { index: usize, backtrace: Backtrace },
     #[snafu(display("Missing actual parameter at index {}", index))]
-    MissingParameter {
-        index: usize,
-        backtrace: Backtrace,
-    },
+    MissingParameter { index: usize, backtrace: Backtrace },
     #[snafu(display("No current track"))]
     NoCurrentTrack,
     #[snafu(display("No track to update"))]
@@ -162,10 +153,7 @@ pub enum Error {
         backtrace: Backtrace,
     },
     #[snafu(display("Unknown parameter ``{}''", param))]
-    UnknownParameter {
-        param: String,
-        backtrace: Backtrace,
-    },
+    UnknownParameter { param: String, backtrace: Backtrace },
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -430,9 +418,7 @@ impl GeneralizedCommand {
                 cfp.push(&curr.file);
                 let cfs = cfp
                     .to_str()
-                    .context(BadPathSnafu {
-                        pth: cfp.clone(),
-                    })?
+                    .context(BadPathSnafu { pth: cfp.clone() })?
                     .to_string();
                 params.insert("current-file".to_string(), cfs.clone());
                 debug!("current-file is: {}", cfs);
@@ -440,11 +426,10 @@ impl GeneralizedCommand {
             }
         };
         // Now walk our formal parameters...
-        let mut i: usize = 1;
         let mut saw_track = false;
         let mut full_file: Option<String> = None;
         let mut act_params = tokens.into_iter();
-        for form_param in &self.formal_parameters {
+        for (i, form_param) in (1..).zip(self.formal_parameters.iter()) {
             let act_param = act_params.next();
             match (form_param, act_param) {
                 (FormalParameter::Literal, Some(token)) => {
@@ -455,24 +440,18 @@ impl GeneralizedCommand {
                     // Slightly more complicated, replacement parameter %i will be "", but only
                     // if this formal parameter is allowed to be defaulted.
                     if i < self.default_after {
-                        return Err(MissingParameterSnafu {
-                            index: i,
-                        }.build());
+                        return Err(MissingParameterSnafu { index: i }.build());
                     }
                     debug!("%{} is: nil", i);
                     params.insert(format!("{}", i), String::from(""));
                 }
                 (FormalParameter::Track, Some(token)) => {
                     if saw_track {
-                        return Err(DuplicateTrackArgumentSnafu {
-                            index: i,
-                        }.build());
+                        return Err(DuplicateTrackArgumentSnafu { index: i }.build());
                     }
                     let mut ffp = self.music_dir.clone();
                     ffp.push(PathBuf::from(token));
-                    let ffs = ffp.to_str().context(BadPathSnafu {
-                        pth: ffp.clone(),
-                    })?;
+                    let ffs = ffp.to_str().context(BadPathSnafu { pth: ffp.clone() })?;
                     params.insert(format!("{}", i), ffs.to_string());
                     params.insert("full-file".to_string(), ffs.to_string());
                     full_file = Some(ffs.to_string());
@@ -480,14 +459,10 @@ impl GeneralizedCommand {
                 }
                 (FormalParameter::Track, None) => {
                     if i < self.default_after {
-                        return Err(MissingParameterSnafu {
-                            index: i,
-                        }.build());
+                        return Err(MissingParameterSnafu { index: i }.build());
                     }
                     if saw_track {
-                        return Err(DuplicateTrackArgumentSnafu {
-                            index: i,
-                        }.build());
+                        return Err(DuplicateTrackArgumentSnafu { index: i }.build());
                     }
                     match &current_file {
                         Some(cf) => {
@@ -502,8 +477,6 @@ impl GeneralizedCommand {
                     saw_track = true;
                 }
             }
-
-            i += 1;
         }
 
         // Take the PinnedCmdFuture we get from `spawn' & combine it with the update type for our

@@ -2,7 +2,7 @@
 name = "mpdpopm"
 version = "@PACKAGE_VERSION@"
 authors = ["@PACKAGE_AUTHOR@"]
-edition = "2021"
+edition = "2024"
 license-file = "../LICENSE"
 description = "Maintain ratings & playcounts for your mpd server"
 homepage = "https://github.com/sp1ff/mpdpopm"
