@@ -25,7 +25,7 @@ jobs:
         include:
         - rust-build: pinned
           os: ubuntu-latest
-          rust: 1.82.0
+          rust: 1.85.0
         - rust-build: stable
           os: ubuntu-latest
           rust: stable
@@ -34,7 +34,7 @@ jobs:
           rust: nightly
         - rust-build: pinned
           os: ubuntu-22.04
-          rust: 1.82.0
+          rust: 1.85.0
         - rust-build: stable
           os: ubuntu-22.04
           rust: stable
@@ -43,7 +43,7 @@ jobs:
           rust: nightly
         - rust-build: pinned
           os: macos-latest
-          rust: 1.82.0
+          rust: 1.85.0
         - rust-build: stable
           os: macos-latest
           rust: stable
@@ -73,10 +73,25 @@ jobs:
           exit 1
         fi
 
+    # If we don't do this, David Tolnay's `rust-toolchain` action,
+    # below, will grab the homebrew copy of `rustup`, and leave us
+    # with a broken install.
+    - name: Unlink homebrew's rustup (MacOS)
+      if: matrix.os == 'macos-latest'
+      shell: bash
+      run: |
+          set -x
+          brew unlink rustup
+
     - name: Install Rust
       uses: dtolnay/rust-toolchain@master
       with:
         toolchain: ${{ matrix.rust }}
+
+    # Un-comment this step to enable ssh'ing into the runner & trouble-shooting
+    # - name: Setup tmate session
+    #   if: matrix.os == 'macos-latest'
+    #   uses: mxschmitt/action-tmate@v3
 
     - name: Install Tools (Ubuntu)
       if: matrix.os == 'ubuntu-22.04'
@@ -150,14 +165,27 @@ jobs:
 
     - name: Install additional Rust tooling
       shell: bash
+      if: matrix.os != 'macos-latest'
+      # Version 3.6.4 doesn't support rust 1.85 (cf. https://github.com/kornelski/cargo-deb/issues/205)
       run: |
-          cargo install --verbose --version=1.44.0 --locked cargo-deb
+          cargo install --force --version=3.6.3 cargo-deb
+
+    - name: Install additional Rust tooling
+      shell: bash
+      if: matrix.os == 'macos-latest'
+      # Version 3.6.4 doesn't support rust 1.85 (cf. https://github.com/kornelski/cargo-deb/issues/205)
+      run: |
+          set -x
+          echo $PATH
+          ls -Alh /Users/runner/.cargo/bin
+          whereis -b cargo
+          cargo --verbose install --force --version=3.6.3 cargo-deb
 
     - name: Configure mpdpopm
       shell: bash
       run: |
-        set -ex
-        ./bootstrap && ./configure
+          set -ex
+          ./bootstrap && ./configure
 
     - name: Build mpdpopm
       run: make
