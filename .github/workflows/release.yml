@@ -26,8 +26,8 @@ jobs:
     name: create-release
     runs-on: ubuntu-latest
     # Un-comment this for testing
-    # env:
-    #   RELEASE_VERSION: 0.3.5
+    env:
+      RELEASE_VERSION: 0.3.6
     steps:
       - name: Create artifacts directory
         run: mkdir artifacts
@@ -84,6 +84,16 @@ jobs:
     - name: Checkout repo
       uses: actions/checkout@v3
 
+    # If we don't do this, David Tolnay's `rust-toolchain` action,
+    # below, will grab the homebrew copy of `rustup`, and leave us
+    # with a broken install.
+    - name: Unlink homebrew's rustup (MacOS)
+      if: matrix.os == 'macos-latest'
+      shell: bash
+      run: |
+          set -x
+          brew unlink rustup
+
     - name: Install Rust
       uses: dtolnay/rust-toolchain@master
       with:
@@ -137,7 +147,7 @@ jobs:
     - name: Install additional Rust tooling
       shell: bash
       run: |
-          cargo install cargo-deb
+          cargo install --force --version=3.6.3 cargo-deb
 
     - name: Configure mpdpopm
       shell: bash
