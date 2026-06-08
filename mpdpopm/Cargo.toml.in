@@ -39,7 +39,7 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter"]}
 
 [package.metadata.deb]
 maintainer = "@PACKAGE_AUTHOR@"
-copyright = "Copyright (C) 2020-2023 @PACKAGE_AUTHOR@"
+copyright = "Copyright (C) 2020-2026 @PACKAGE_AUTHOR@"
 extended-description = """
 mpdpopm provides a companion daemon to mpd <https://www.musicpd.org>/ \
 for maintaining play counts, ratings and last-played timestamps, \
