@@ -1,3 +1,17 @@
+2026-06-07  Michael Herstine  <sp1ff@pobox.com>
+
+	Update NEWS
+
+	Fix the CI Github Action.
+	  - correct the command for installing `cargo-deb`
+	  - begin checking-in the `Cargo.lock` file
+	  - fix GHA on MacOS; homebrew's rustup was interfering
+
+2026-06-04  Michael Herstine  <sp1ff@pobox.com>
+
+	Upgrade to the 2024 edition.
+	Also, fix a lint in `commands.rs`.
+
 2026-06-04  Michael Herstine  <sp1ff@pobox.com>
 
 	Migrate to Snafu.
@@ -8,6 +22,12 @@
 
 	This code was authored with the help of Cursor.ai, OpenAI, Claude
 	and direct calls to the OpenAI API.
+
+2026-01-13  Michael Herstine  <sp1ff@pobox.com>
+
+	Fix CI
+
+	Retry the Texinfo download from assorted GNU mirrors
 
 2025-10-21  Michael Herstine  <sp1ff@pobox.com>
 

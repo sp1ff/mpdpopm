@@ -1,5 +1,11 @@
 mpdpopm News -- history of user-visible changes           -*- outline -*-
 
+* NEXT RELEASE
+
+** update copyrights
+** assorted CI fixes
+** migrate to Snafu for error-handling
+** update to the 2024 rust edition
 * 0.3 builds
 
 ** 0.3.5 build
