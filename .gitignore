@@ -12,3 +12,6 @@ config.log
 config.status
 *.deb
 *.zst
+AGENTS.md
+CLAUDE.md
+.personal
